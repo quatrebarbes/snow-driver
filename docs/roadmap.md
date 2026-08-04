@@ -66,7 +66,16 @@ SFD : EX-108, EX-109, EX-110, EX-111, EX-122, EX-128
 - Tests Unit : traduction de chaque clause (where, limit/offset, orderBy) vers les paramètres `sysparm_*`
 - Tests Feature : lecture paginée automatique, clause non supportée → exception
 
-## Phase 5 — Écriture : création, modification, suppression
+## Phase 5 — Application de démonstration
+
+Non couvert par une exigence SFD : application d'exemple destinée à illustrer l'usage du driver, hébergée dans le dépôt (ex. `demo/`). Placée ici plutôt qu'en fin de roadmap car la lecture (Phase 4) est le premier point où l'IHM peut afficher des données ServiceNow réelles ; elle pourra être enrichie dans les phases suivantes (écriture, relations).
+
+- [ ] Application de démo consommant le package via des modèles `ServiceNowModel` réels
+- [ ] IHM (front) permettant de visualiser/manipuler des enregistrements ServiceNow au travers du driver
+- [ ] Dockerisation de l'app de démo (Dockerfile + service dans `docker-compose.yml`) pour un lancement en une commande
+- Tests : à définir selon la stack retenue pour l'IHM (Nuxt 3 pressenti, cf. stack projet)
+
+## Phase 6 — Écriture : création, modification, suppression
 
 SFD : EX-112, EX-113, EX-114, EX-115, EX-123, EX-124
 
@@ -79,7 +88,7 @@ SFD : EX-112, EX-113, EX-114, EX-115, EX-123, EX-124
 - Tests Unit : construction des payloads POST/PUT/PATCH/DELETE
 - Tests Feature : cycle create/update/delete complet, `saveMany` avec échec partiel
 
-## Phase 6 — Relations via champs de référence
+## Phase 7 — Relations via champs de référence
 
 SFD : EX-116, EX-117, EX-118, EX-129, EX-125
 
