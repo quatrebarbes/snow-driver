@@ -4,6 +4,7 @@ namespace Quatrebarbes\SnowDriver\Eloquent;
 
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Quatrebarbes\SnowDriver\Eloquent\Relations\ServiceNowBelongsTo;
 use Quatrebarbes\SnowDriver\Http\TableApiClient;
 use RuntimeException;
 
@@ -133,6 +134,22 @@ abstract class ServiceNowModel extends Model
         );
 
         $this->exists = false;
+    }
+
+    /**
+     * EX-116, EX-117 : un champ reference se déclare comme une relation
+     * belongsTo() Eloquent standard sur le modèle (aucune méthode ou
+     * attribut propriétaire) ; seule l'implémentation de la relation
+     * retournée diffère (ServiceNowBelongsTo), pour EX-129 uniquement. Le
+     * lazy loading, l'eager loading via with() (EX-118) et la distinction
+     * 403/absence de donnée (EX-125) sont le comportement standard
+     * d'Eloquent, inchangé : une exécution de la requête de la relation
+     * passe par ServiceNowConnection::select() comme toute autre requête,
+     * et une réponse 403 y lève donc déjà ServiceNowAuthenticationException.
+     */
+    protected function newBelongsTo(Builder $query, Model $child, $foreignKey, $ownerKey, $relation)
+    {
+        return new ServiceNowBelongsTo($query, $child, $foreignKey, $ownerKey, $relation);
     }
 
     /**

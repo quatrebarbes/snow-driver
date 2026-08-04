@@ -2,7 +2,7 @@
 
 Plan de développement et suivi d'avancement du plug-in Laravel snow-driver.
 
-État au 2026-08-04 : Phases 0 à 6 terminées (squelette de package, connexion et authentification, client HTTP interne et gestion des erreurs API, mapping modèle Eloquent ↔ table ServiceNow, lecture des enregistrements via query builder, application de démo Blade dans `demo/`, écriture create/update/delete). La seule SFD existante est [1. Driver ServiceNow.md](sfd/1.%20Driver%20ServiceNow.md) (30 exigences, EX-101 à EX-130). La roadmap ci-dessous découpe ces exigences en phases techniques ordonnées par dépendance : la connexion doit exister avant le mapping des modèles, le mapping avant les requêtes, les requêtes avant les relations. Chaque exigence n'apparaît que dans une seule phase.
+État au 2026-08-04 : Phases 0 à 7 terminées (squelette de package, connexion et authentification, client HTTP interne et gestion des erreurs API, mapping modèle Eloquent ↔ table ServiceNow, lecture des enregistrements via query builder, application de démo Blade dans `demo/`, écriture create/update/delete, relations belongsTo via champs de référence). Toutes les exigences de la SFD [1. Driver ServiceNow.md](sfd/1.%20Driver%20ServiceNow.md) (30 exigences, EX-101 à EX-130) sont couvertes. La roadmap ci-dessous découpe ces exigences en phases techniques ordonnées par dépendance : la connexion doit exister avant le mapping des modèles, le mapping avant les requêtes, les requêtes avant les relations. Chaque exigence n'apparaît que dans une seule phase.
 
 Convention de suivi : `[ ]` à faire, `[~]` en cours, `[x]` fait.
 
@@ -91,16 +91,16 @@ SFD : EX-112, EX-113, EX-114, EX-115, EX-123, EX-124
 
 SFD : EX-116, EX-117, EX-118, EX-129, EX-125
 
-- [ ] Exposition d'un champ `reference` comme relation `belongsTo` Eloquent standard — EX-116
-- [ ] Déclaration via syntaxe Eloquent standard (méthode de relation sur le modèle), pas de DSL propriétaire — EX-117
-- [ ] Support lazy loading et eager loading (`with()`) — EX-118
-- [ ] Référence à `sys_id` vide → relation résolue à `null` — EX-129
-- [ ] Référence vers `sys_id` supprimé → `null` (404) ; droits insuffisants → exception dédiée (403), distincte du cas absence de donnée — EX-125
-- Tests Unit : résolution de la relation (cas nominal, valeur vide)
-- Tests Feature : eager/lazy loading, 404 → null, 403 → exception
+- [x] Exposition d'un champ `reference` comme relation `belongsTo` Eloquent standard — EX-116 : les modèles applicatifs déclarent la relation avec `$this->belongsTo(TargetModel::class, 'champ_reference', 'sys_id')`, exactement comme pour tout autre driver Eloquent
+- [x] Déclaration via syntaxe Eloquent standard (méthode de relation sur le modèle), pas de DSL propriétaire — EX-117 : aucune méthode ni attribut propriétaire ; `ServiceNowModel::newBelongsTo()` (point d'extension standard d'Eloquent) est la seule surcharge, uniquement pour retourner `ServiceNowBelongsTo` au lieu de `BelongsTo`
+- [x] Support lazy loading et eager loading (`with()`) — EX-118 : comportement standard d'Eloquent, non modifié ; la requête de la relation (lazy `first()` ou eager `whereIn()`) passe par `ServiceNowConnection::select()` comme toute autre requête (Phase 4)
+- [x] Référence à `sys_id` vide → relation résolue à `null` — EX-129 : `ServiceNowBelongsTo` (`src/Eloquent/Relations/ServiceNowBelongsTo.php`) normalise la chaîne vide en `null` dans `getForeignKeyFrom()`, car ce champ ServiceNow est une chaîne et non un `null` natif ; `BelongsTo::getResults()` ne teste que `is_null()`, ce qui court-circuite alors la relation sans appel à l'API Table
+- [x] Référence vers `sys_id` supprimé → `null` (404) ; droits insuffisants → exception dédiée (403), distincte du cas absence de donnée — EX-125 : résolution via une requête filtrée (`sys_id=...`) sur l'API Table plutôt qu'un GET par identifiant ; un `sys_id` introuvable donne un résultat vide (200), déjà résolu à `null` par `BelongsTo::getResults()` ; un 403 lève déjà `ServiceNowAuthenticationException` via `TableApiClient::assertSuccessful()` (Phase 2), propagée sans capture
+- [x] Tests Unit : résolution de la relation (cas nominal, valeur vide) (`tests/Unit/Eloquent/Relations/ServiceNowBelongsToTest.php`)
+- [x] Tests Feature : eager/lazy loading, 404 → null, 403 → exception (`tests/Feature/ServiceNowRelationsTest.php`)
 
 ## Notes de suivi
 
 - Convention d'implémentation : chaque exigence `EX-...` doit être référencée en commentaire dans le code qui l'implémente.
 - Si une nouvelle SFD est ajoutée (autre module, premier chiffre de l'identifiant différent de `1`), lui ajouter une section dédiée dans cette roadmap plutôt que de mélanger les phases.
-- Prochaine étape : démarrer la Phase 7 (relations).
+- Toutes les phases planifiées sont terminées ; prochaine étape à définir avec le métier (nouvelle SFD ou évolution, par ex. OAuth2 client credentials en complément de l'abstraction `Credentials` posée en Phase 1 — EX-103).
