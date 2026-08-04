@@ -2,7 +2,7 @@
 
 Plan de développement et suivi d'avancement du plug-in Laravel snow-driver.
 
-État au 2026-08-04 : Phases 0, 1 et 2 terminées (squelette de package, connexion et authentification, client HTTP interne et gestion des erreurs API). La seule SFD existante est [1. Driver ServiceNow.md](sfd/1.%20Driver%20ServiceNow.md) (30 exigences, EX-101 à EX-130). La roadmap ci-dessous découpe ces exigences en phases techniques ordonnées par dépendance : la connexion doit exister avant le mapping des modèles, le mapping avant les requêtes, les requêtes avant les relations. Chaque exigence n'apparaît que dans une seule phase.
+État au 2026-08-04 : Phases 0, 1, 2 et 3 terminées (squelette de package, connexion et authentification, client HTTP interne et gestion des erreurs API, mapping modèle Eloquent ↔ table ServiceNow). La seule SFD existante est [1. Driver ServiceNow.md](sfd/1.%20Driver%20ServiceNow.md) (30 exigences, EX-101 à EX-130). La roadmap ci-dessous découpe ces exigences en phases techniques ordonnées par dépendance : la connexion doit exister avant le mapping des modèles, le mapping avant les requêtes, les requêtes avant les relations. Chaque exigence n'apparaît que dans une seule phase.
 
 Convention de suivi : `[ ]` à faire, `[~]` en cours, `[x]` fait.
 
@@ -46,12 +46,12 @@ SFD : EX-119, EX-120, EX-130
 
 SFD : EX-105, EX-106, EX-107, EX-127
 
-- [ ] `ServiceNowModel` (classe de base abstraite) : résolution du nom de table (convention Eloquent ou `$table` explicite) — EX-105
-- [ ] `sys_id` comme clé primaire string, non auto-incrémentée — EX-106
-- [ ] Mapping `sys_created_on`/`sys_updated_on` → `created_at`/`updated_at` natifs Eloquent — EX-107
-- [ ] Exception explicite si table inexistante ou droits d'accès insuffisants (pas de résultat vide silencieux) — EX-127
-- Tests Unit : résolution du nom de table, config clé primaire, mapping des timestamps
-- Tests Feature : accès à une table inexistante / non autorisée → exception
+- [x] `ServiceNowModel` (classe de base abstraite) : résolution du nom de table (convention Eloquent ou `$table` explicite) — EX-105
+- [x] `sys_id` comme clé primaire string, non auto-incrémentée — EX-106
+- [x] Mapping `sys_created_on`/`sys_updated_on` → `created_at`/`updated_at` natifs Eloquent (constantes `CREATED_AT`/`UPDATED_AT`) — EX-107
+- [x] Exception explicite si table inexistante ou droits d'accès insuffisants (pas de résultat vide silencieux) — EX-127 : satisfait par composition de la résolution modèle→table (`getTable()`/`getConnectionName()`) avec la hiérarchie d'exceptions du `TableApiClient` (Phase 2), qui ne renvoie jamais un résultat vide sur 4xx/5xx
+- [x] Tests Unit : résolution du nom de table, config clé primaire, mapping des timestamps
+- [x] Tests Feature : accès à une table inexistante / non autorisée → exception
 
 ## Phase 4 — Lecture des enregistrements (query builder)
 
@@ -104,4 +104,4 @@ SFD : EX-116, EX-117, EX-118, EX-129, EX-125
 
 - Convention d'implémentation : chaque exigence `EX-...` doit être référencée en commentaire dans le code qui l'implémente.
 - Si une nouvelle SFD est ajoutée (autre module, premier chiffre de l'identifiant différent de `1`), lui ajouter une section dédiée dans cette roadmap plutôt que de mélanger les phases.
-- Prochaine étape : démarrer la Phase 3 (mapping modèle Eloquent ↔ table ServiceNow).
+- Prochaine étape : démarrer la Phase 4 (lecture des enregistrements, query builder).
