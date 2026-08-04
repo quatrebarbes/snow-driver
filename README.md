@@ -8,9 +8,11 @@ Plug-in Laravel fournissant un driver de base de données pour accéder aux obje
 - Client HTTP interne (`TableApiClient`) et hiérarchie d'exceptions dédiées (`ServiceNowConnectionException`, `ServiceNowAuthenticationException`, `ServiceNowApiException`, `ServiceNowMalformedResponseException`)
 - Modèle Eloquent de base (`ServiceNowModel`) mappant `sys_id` (clé primaire string) et `sys_created_on`/`sys_updated_on` sur les timestamps natifs Eloquent
 - Query builder traduisant `where`, `whereIn`, `whereNull`, `whereBetween`, `orderBy`, `limit`/`offset` en `sysparm_query` et paramètres `sysparm_*` de l'API Table, avec pagination automatique transparente pour `all()`/`get()`
-- `ServiceNowUnsupportedQueryException` pour toute clause du query builder sans équivalent ServiceNow (join, groupBy, agrégats, sous-requêtes, etc.)
+- Comptage (`count()`, `paginate()`) via la fonction d'agrégation de l'API ServiceNow, sans rapatrier les enregistrements, et test d'existence (`exists()`) borné à un enregistrement
+- Introspection du schéma via `Schema::connection()` (liste des tables, colonnes typées, clés étrangères déduites des champs de référence) lue dans le dictionnaire de l'instance, avec mise en cache configurable
+- `ServiceNowUnsupportedQueryException` pour toute clause du query builder sans équivalent ServiceNow (join, groupBy, agrégats autres que le comptage, sous-requêtes, etc.)
 
-Écriture (create/update/delete) et relations via champs de référence sont en cours de développement — voir [docs/roadmap.md](docs/roadmap.md).
+La génération automatique de modèles pour les tables configurées reste à implémenter — voir [docs/roadmap.md](docs/roadmap.md).
 
 ## Prérequis
 
@@ -59,6 +61,7 @@ Variables d'environnement correspondantes :
 | `SNOW_AUTH_MODE` | Mode d'authentification | `basic` |
 | `SNOW_USERNAME` / `SNOW_PASSWORD` | Identifiants Basic Auth | — |
 | `SNOW_PAGE_SIZE` | Taille de page pour la pagination automatique (`all()`/`get()` sans limite explicite) | `10000` |
+| `SNOW_SCHEMA_CACHE_TTL` | Durée de cache (secondes) du schéma lu dans le dictionnaire ; `0` désactive le cache applicatif | `300` |
 
 La connexion est paresseuse : aucune requête n'est effectuée au boot de l'application, seulement à la première interrogation.
 
@@ -78,6 +81,31 @@ Incident::where('active', true)
     ->limit(20)
     ->get();
 ```
+
+## Introspection du schéma
+
+Une connexion ServiceNow répond aux mêmes interrogations de schéma qu'une connexion SQL, lues dans le dictionnaire de l'instance (`sys_db_object`, `sys_dictionary`) : un outil Laravel générique d'exploration de données fonctionne donc sur une connexion ServiceNow sans rien connaître du driver.
+
+```php
+use Illuminate\Support\Facades\Schema;
+
+$schema = Schema::connection('servicenow');
+
+$schema->getTableListing();              // noms techniques des tables de l'instance
+$schema->hasTable('incident');
+$schema->getColumns('incident');         // champs hérités des tables parentes compris
+$schema->getColumnListing('incident');
+$schema->hasColumn('incident', 'number');
+$schema->getForeignKeys('incident');     // déduites des champs de type reference
+
+Incident::count();                       // fonction d'agrégation de l'API, sans rapatriement
+Incident::paginate(20);                  // total et nombre de pages inclus
+Incident::where('active', true)->exists();
+```
+
+Les types internes ServiceNow sont exposés sous les noms de types que Laravel reconnaît (`boolean`, `integer`, `decimal`, `date`, `datetime`, `time`, `json`, `text`, `varchar`) ; un type inconnu est exposé comme chaîne plutôt que de faire échouer l'introspection. Un champ de type `reference` est exposé comme clé étrangère vers `sys_id` de la table référencée — mais ServiceNow n'appliquant aucune contrainte d'intégrité référentielle, cette clé est descriptive.
+
+La structure d'une table ServiceNow se modifie côté instance : les opérations de modification de schéma (`Schema::create()`, `drop()`, `table()`...) lèvent `ServiceNowUnsupportedQueryException`.
 
 ## Application de démonstration
 
@@ -102,7 +130,7 @@ Les tests sont organisés en `tests/Unit` (une fonction = un test) et `tests/Fea
 
 ## Documentation
 
-- Spécifications fonctionnelles détaillées : [docs/sfd/](docs/sfd/)
+- Spécifications fonctionnelles détaillées : [docs/sfd/](docs/sfd/) — [driver](docs/sfd/1.%20Driver%20ServiceNow.md), [génération de modèles](docs/sfd/2.%20G%C3%A9n%C3%A9ration%20de%20mod%C3%A8les%20ServiceNow.md), [introspection du schéma](docs/sfd/3.%20Introspection%20du%20sch%C3%A9ma%20ServiceNow.md)
 - Plan de développement et avancement : [docs/roadmap.md](docs/roadmap.md)
 
 ## Licence

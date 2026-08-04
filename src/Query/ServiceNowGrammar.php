@@ -29,6 +29,10 @@ class ServiceNowGrammar extends Grammar
     {
         $this->guardAgainstUnsupportedClauses($query);
 
+        if ($this->isCountAggregate($query)) {
+            return $this->compileCount($query);
+        }
+
         $sysparmQuery = $this->compileWheres($query);
 
         $orderBy = $this->compileServiceNowOrders($query->orders ?? []);
@@ -78,13 +82,78 @@ class ServiceNowGrammar extends Grammar
             throw ServiceNowUnsupportedQueryException::forClause('distinct');
         }
 
-        if ($query->aggregate) {
-            throw ServiceNowUnsupportedQueryException::forClause("fonction d'agrégation (count/sum/avg/min/max)");
+        // EX-314 : le comptage fait exception, l'API ServiceNow exposant une
+        // fonction d'agrégation dédiée. Les autres agrégats restent sans
+        // équivalent exploitable ici et continuent de relever d'EX-128.
+        if ($query->aggregate && ! $this->isCountAggregate($query)) {
+            throw ServiceNowUnsupportedQueryException::forClause(sprintf(
+                "fonction d'agrégation \"%s\" (seul le comptage est supporté)",
+                is_string($query->aggregate['function'] ?? null) ? $query->aggregate['function'] : 'inconnue'
+            ));
+        }
+
+        // Un comptage de colonne (count('colonne')) exclurait en SQL les
+        // valeurs nulles : la fonction d'agrégation de l'API ServiceNow ne
+        // compte que des enregistrements, la traduction serait donc fausse
+        // dès que la colonne comporte des valeurs vides (EX-128).
+        if ($this->isCountAggregate($query) && ($query->aggregate['columns'] ?? ['*']) !== ['*']) {
+            throw ServiceNowUnsupportedQueryException::forClause(
+                "comptage des valeurs renseignées d'une colonne (count(colonne)), l'API ServiceNow ne comptant que des enregistrements"
+            );
         }
 
         if (! is_string($query->from)) {
             throw ServiceNowUnsupportedQueryException::forClause('table dérivée d\'une sous-requête ou d\'une expression');
         }
+    }
+
+    /**
+     * EX-314, EX-315 : un comptage se compile en une requête portant la même
+     * traduction de filtres qu'une lecture (compileWheres), mais marquée comme
+     * agrégat : ServiceNowConnection::select() l'exécute alors via la fonction
+     * d'agrégation de l'API ServiceNow, sans rapatrier d'enregistrement.
+     *
+     * Ni le tri (retiré par Eloquent lui-même sur un agrégat), ni la limite,
+     * ni le décalage ne sont transportés : ils n'ont pas de sens pour un
+     * comptage, dont le résultat porte sur l'ensemble des enregistrements
+     * correspondant aux filtres.
+     */
+    private function compileCount(Builder $query): string
+    {
+        return json_encode([
+            'table' => $query->from,
+            'query' => $this->compileWheres($query),
+            'aggregate' => 'count',
+        ]);
+    }
+
+    /**
+     * EX-317 : le test d'existence se compile en une lecture bornée à un
+     * enregistrement, sans comptage.
+     *
+     * La grammaire de base emballerait la requête compilée dans un
+     * `select exists(...) as exists` : du SQL, que ServiceNowConnection::select()
+     * ne saurait pas décoder. La surcharge produit à la place la même
+     * structure JSON que toute autre lecture, marquée comme test d'existence.
+     */
+    public function compileExists(Builder $query)
+    {
+        return json_encode([
+            'table' => $query->from,
+            'query' => $this->compileWheres($query),
+            'exists' => true,
+        ]);
+    }
+
+    /**
+     * Un agrégat `count`, quelle que soit la colonne comptée : l'API
+     * ServiceNow ne compte que des enregistrements, jamais les valeurs non
+     * nulles d'une colonne donnée (cf. limite documentée côté SFD).
+     */
+    private function isCountAggregate(Builder $query): bool
+    {
+        return is_array($query->aggregate)
+            && strtolower((string) ($query->aggregate['function'] ?? '')) === 'count';
     }
 
     /**

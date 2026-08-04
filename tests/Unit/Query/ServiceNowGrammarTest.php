@@ -179,14 +179,67 @@ class ServiceNowGrammarTest extends TestCase
         $this->compile($this->newQuery()->groupBy('priority'));
     }
 
-    public function test_an_aggregate_throws_a_dedicated_exception(): void
+    public function test_a_count_aggregate_is_compiled_with_its_filters(): void
     {
-        // EX-128 : pas d'équivalent count()/sum() sans requête dédiée non supportée pour l'instant.
+        // EX-314, EX-315 : le comptage est compilé comme agrégat, en
+        // conservant la traduction des filtres de la lecture.
         $query = $this->newQuery()->where('active', '=', 'true');
         $query->aggregate = ['function' => 'count', 'columns' => ['*']];
+
+        $compiled = $this->compile($query);
+
+        $this->assertSame('count', $compiled['aggregate']);
+        $this->assertSame('active=true', $compiled['query']);
+        $this->assertSame('incidents', $compiled['table']);
+    }
+
+    public function test_a_count_aggregate_carries_neither_limit_nor_order(): void
+    {
+        // EX-314 : un comptage porte sur l'ensemble des enregistrements
+        // correspondant aux filtres ; limite, décalage et tri n'y ont pas de sens.
+        $query = $this->newQuery()->orderBy('number')->limit(10)->offset(20);
+        $query->aggregate = ['function' => 'count', 'columns' => ['*']];
+
+        $compiled = $this->compile($query);
+
+        $this->assertSame(['table', 'query', 'aggregate'], array_keys($compiled));
+        $this->assertSame('', $compiled['query']);
+    }
+
+    public function test_an_aggregate_other_than_count_throws_a_dedicated_exception(): void
+    {
+        // EX-128 : somme, moyenne, minimum et maximum restent sans équivalent
+        // exploitable, seul le comptage fait exception (EX-314).
+        $query = $this->newQuery()->where('active', '=', 'true');
+        $query->aggregate = ['function' => 'sum', 'columns' => ['priority']];
 
         $this->expectException(ServiceNowUnsupportedQueryException::class);
 
         $this->compile($query);
+    }
+
+    public function test_counting_a_single_column_throws_a_dedicated_exception(): void
+    {
+        // EX-128 : count('colonne') exclurait les valeurs nulles en SQL, ce
+        // que la fonction d'agrégation de l'API ServiceNow ne sait pas faire.
+        $query = $this->newQuery();
+        $query->aggregate = ['function' => 'count', 'columns' => ['assigned_to']];
+
+        $this->expectException(ServiceNowUnsupportedQueryException::class);
+
+        $this->compile($query);
+    }
+
+    public function test_an_exists_query_is_compiled_as_a_bounded_read(): void
+    {
+        // EX-317 : le test d'existence ne compile ni agrégat ni SQL
+        // `select exists(...)`, mais la même structure JSON qu'une lecture.
+        $query = $this->newQuery()->where('sys_id', '=', 'abc123');
+
+        $compiled = json_decode($query->getGrammar()->compileExists($query), true);
+
+        $this->assertTrue($compiled['exists']);
+        $this->assertSame('sys_id=abc123', $compiled['query']);
+        $this->assertSame('incidents', $compiled['table']);
     }
 }

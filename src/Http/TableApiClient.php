@@ -23,25 +23,25 @@ class TableApiClient
     /** @return array<int, array<string, mixed>> */
     public function get(string $uri, array $query = []): array
     {
-        return $this->decodeResult($this->send('get', $uri, $query));
+        return $this->decodeResult($this->send('get', $uri, $query), $uri);
     }
 
     /** @return array<string, mixed> */
     public function post(string $uri, array $payload): array
     {
-        return $this->decodeResult($this->send('post', $uri, $payload));
+        return $this->decodeResult($this->send('post', $uri, $payload), $uri);
     }
 
     /** @return array<string, mixed> */
     public function put(string $uri, array $payload): array
     {
-        return $this->decodeResult($this->send('put', $uri, $payload));
+        return $this->decodeResult($this->send('put', $uri, $payload), $uri);
     }
 
     /** @return array<string, mixed> */
     public function patch(string $uri, array $payload): array
     {
-        return $this->decodeResult($this->send('patch', $uri, $payload));
+        return $this->decodeResult($this->send('patch', $uri, $payload), $uri);
     }
 
     public function delete(string $uri): void
@@ -54,28 +54,36 @@ class TableApiClient
         try {
             $response = $this->connection->httpClient()->{$method}($uri, $data);
         } catch (ConnectionException $e) {
-            throw ServiceNowMalformedResponseException::forNetworkFailure($uri, $e);
+            throw ServiceNowMalformedResponseException::forNetworkFailure(
+                $uri,
+                $e,
+                $this->connection->connectionName()
+            );
         }
 
-        $this->assertSuccessful($response);
+        $this->assertSuccessful($response, $uri);
 
         return $response;
     }
 
     /**
      * EX-119, EX-120 : mapping du statut HTTP vers l'exception dédiée.
+     * EX-319 : nom de la connexion et URI appelée portés par l'exception, pour
+     * qu'une application hôte générique puisse les restituer.
      */
-    private function assertSuccessful(Response $response): void
+    private function assertSuccessful(Response $response, string $uri): void
     {
         if ($response->successful()) {
             return;
         }
 
+        $connectionName = $this->connection->connectionName();
+
         if (in_array($response->status(), [401, 403], true)) {
-            throw ServiceNowAuthenticationException::fromResponse($response);
+            throw ServiceNowAuthenticationException::fromResponse($response, $connectionName, $uri);
         }
 
-        throw ServiceNowApiException::fromResponse($response);
+        throw ServiceNowApiException::fromResponse($response, $connectionName, $uri);
     }
 
     /**
@@ -84,17 +92,18 @@ class TableApiClient
      *
      * @return array<string, mixed>
      */
-    private function decodeResult(Response $response): array
+    private function decodeResult(Response $response, string $uri): array
     {
         $body = $response->body();
         $decoded = $response->json();
+        $connectionName = $this->connection->connectionName();
 
         if (trim($body) === '' || ! is_array($decoded)) {
-            throw ServiceNowMalformedResponseException::forInvalidBody($body);
+            throw ServiceNowMalformedResponseException::forInvalidBody($body, $connectionName, $uri);
         }
 
         if (! array_key_exists('result', $decoded) || ! is_array($decoded['result'])) {
-            throw ServiceNowMalformedResponseException::forMissingResult($body);
+            throw ServiceNowMalformedResponseException::forMissingResult($body, $connectionName, $uri);
         }
 
         return $decoded['result'];

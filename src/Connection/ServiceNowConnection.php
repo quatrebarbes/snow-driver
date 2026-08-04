@@ -9,14 +9,28 @@ use Illuminate\Support\Facades\Http;
 use InvalidArgumentException;
 use Quatrebarbes\SnowDriver\Auth\Credentials;
 use Quatrebarbes\SnowDriver\Exceptions\ServiceNowConnectionException;
+use Quatrebarbes\SnowDriver\Exceptions\ServiceNowMalformedResponseException;
+use Quatrebarbes\SnowDriver\Exceptions\ServiceNowUnsupportedQueryException;
 use Quatrebarbes\SnowDriver\Http\TableApiClient;
 use Quatrebarbes\SnowDriver\Query\ServiceNowGrammar;
+use Quatrebarbes\SnowDriver\Schema\ServiceNowSchemaBuilder;
 
 /**
  * EX-101 : connexion à une instance ServiceNow configurée via config/database.php.
  */
 class ServiceNowConnection extends Connection
 {
+    /**
+     * Racine de l'API Table, préfixe de toute lecture ou écriture
+     * d'enregistrements.
+     */
+    private const TABLE_API = '/api/now/table/';
+
+    /**
+     * Racine de l'API d'agrégation, distincte de l'API Table (EX-314).
+     */
+    private const STATS_API = '/api/now/stats/';
+
     private ?Credentials $credentials = null;
 
     public function __construct(string $database, string $tablePrefix, array $config)
@@ -87,15 +101,45 @@ class ServiceNowConnection extends Connection
      * Table, au lieu du cycle PDO standard.
      *
      * On n'utilise volontairement pas Connection::run() : celui-ci
-     * envelopperait toute exception (ServiceNowApiException,
-     * ServiceNowAuthenticationException...) dans une Illuminate\Database\QueryException
+     * remplacerait toute exception (ServiceNowApiException,
+     * ServiceNowAuthenticationException...) par une Illuminate\Database\QueryException
      * générique, ce qui casserait la distinction attendue par EX-119/EX-120/EX-130.
+     * Depuis EX-318, ces exceptions sont elles-mêmes des QueryException — un
+     * outil hôte générique les reconnaît donc comme des erreurs de base de
+     * données — mais chacune conserve son type propre, ce que l'enveloppement
+     * par run() perdrait précisément.
      *
      * @return array<int, array<string, mixed>>
      */
     public function select($query, $bindings = [], $useReadPdo = true, array $fetchUsing = [])
     {
         $decoded = json_decode($query, true);
+
+        // Une requête arrivant ici sans être passée par ServiceNowGrammar
+        // (chemin du query builder non surchargé retombant sur la grammaire
+        // SQL de base) est rejetée explicitement, plutôt que de produire une
+        // erreur PHP de bas niveau sur un décodage vide (même principe
+        // qu'EX-128).
+        if (! is_array($decoded) || ! isset($decoded['table'])) {
+            throw ServiceNowUnsupportedQueryException::forClause(
+                'requête non traduite par la grammaire ServiceNow (clause sans équivalent dans l\'API Table)'
+            );
+        }
+
+        // EX-314, EX-315 : un comptage s'exécute via la fonction d'agrégation
+        // de l'API, sans rapatrier d'enregistrement. La clé `aggregate` de la
+        // ligne retournée est celle qu'attend Illuminate\Database\Query\Builder
+        // pour tout agrégat — c'est aussi par ce chemin que paginate() obtient
+        // son total et son nombre de pages (EX-316), via getCountForPagination().
+        if (($decoded['aggregate'] ?? null) === 'count') {
+            return [['aggregate' => $this->countRecords($decoded['table'], $decoded['query'] ?? '')]];
+        }
+
+        // EX-317 : un test d'existence se satisfait d'une lecture bornée à un
+        // enregistrement. La clé `exists` est celle qu'attend le query builder.
+        if ($decoded['exists'] ?? false) {
+            return [['exists' => $this->hasAnyRecord($decoded['table'], $decoded['query'] ?? '') ? 1 : 0]];
+        }
 
         $table = $decoded['table'];
         $sysparmQuery = $decoded['query'];
@@ -109,13 +153,13 @@ class ServiceNowConnection extends Connection
         ], fn ($value) => $value !== null);
 
         if ($limit !== null) {
-            return $this->tableApi()->get('/api/now/table/'.$table, $params + [
+            return $this->tableApi()->get(self::TABLE_API.$table, $params + [
                 'sysparm_limit' => $limit,
                 'sysparm_offset' => $offset,
             ]);
         }
 
-        return $this->selectAllPages($table, $params, $offset);
+        return $this->fetchAllPages($table, $params, $offset);
     }
 
     /**
@@ -123,17 +167,23 @@ class ServiceNowConnection extends Connection
      * limite explicite, en enchaînant les appels avec un décalage croissant
      * tant que l'API retourne une page pleine.
      *
+     * Publique car le lecteur de dictionnaire (EX-302) en a besoin pour
+     * rapatrier la liste complète des tables de l'instance, qui dépasse
+     * couramment une page : il interroge l'API Table directement, sans passer
+     * par le query builder, pour que l'introspection du schéma ne dépende pas
+     * de la grammaire qu'elle sert justement à alimenter.
+     *
      * @param  array<string, mixed>  $params
      * @return array<int, array<string, mixed>>
      */
-    private function selectAllPages(string $table, array $params, int $offset): array
+    public function fetchAllPages(string $table, array $params = [], int $offset = 0): array
     {
         $pageSize = (int) config('servicenow.pagination.page_size');
 
         $records = [];
 
         do {
-            $page = $this->tableApi()->get('/api/now/table/'.$table, $params + [
+            $page = $this->tableApi()->get(self::TABLE_API.$table, $params + [
                 'sysparm_limit' => $pageSize,
                 'sysparm_offset' => $offset,
             ]);
@@ -143,6 +193,74 @@ class ServiceNowConnection extends Connection
         } while (count($page) === $pageSize);
 
         return $records;
+    }
+
+    /**
+     * EX-314, EX-315 : nombre d'enregistrements d'une table, filtres compris,
+     * obtenu via la fonction d'agrégation de l'API ServiceNow (API Aggregate)
+     * plutôt qu'en rapatriant puis dénombrant les enregistrements.
+     */
+    private function countRecords(string $table, string $sysparmQuery): int
+    {
+        $params = ['sysparm_count' => 'true'];
+
+        if ($sysparmQuery !== '') {
+            $params['sysparm_query'] = $sysparmQuery;
+        }
+
+        $result = $this->tableApi()->get(self::STATS_API.$table, $params);
+
+        $count = $result['stats']['count'] ?? null;
+
+        // EX-130 : une réponse d'agrégation sans compteur exploitable est
+        // rejetée explicitement plutôt que traduite en 0, qui serait un
+        // résultat par défaut trompeur (table vide indiscernable d'une
+        // réponse inattendue).
+        if (! is_numeric($count)) {
+            throw ServiceNowMalformedResponseException::forMissingAggregate($table);
+        }
+
+        return (int) $count;
+    }
+
+    /**
+     * EX-317 : présence d'au moins un enregistrement correspondant aux
+     * filtres, par une lecture bornée à un enregistrement et au seul champ
+     * sys_id — ni comptage, ni rapatriement de l'ensemble des correspondances.
+     */
+    private function hasAnyRecord(string $table, string $sysparmQuery): bool
+    {
+        $params = [
+            'sysparm_fields' => 'sys_id',
+            'sysparm_limit' => 1,
+        ];
+
+        if ($sysparmQuery !== '') {
+            $params['sysparm_query'] = $sysparmQuery;
+        }
+
+        return $this->tableApi()->get(self::TABLE_API.$table, $params) !== [];
+    }
+
+    /**
+     * EX-301 : constructeur de schéma adossé au dictionnaire de l'instance,
+     * en lieu et place du constructeur générique de Laravel, inutilisable ici
+     * faute de grammaire de schéma SQL.
+     */
+    public function getSchemaBuilder(): ServiceNowSchemaBuilder
+    {
+        return new ServiceNowSchemaBuilder($this);
+    }
+
+    /**
+     * EX-319 : nom de la connexion tel que déclaré par l'application hôte,
+     * porté par les exceptions d'erreur d'API et par les clés de cache du
+     * schéma. `name` est ajouté à la configuration par ConnectionFactory ;
+     * une connexion construite directement (tests) retombe sur le driver.
+     */
+    public function connectionName(): string
+    {
+        return (string) ($this->getConfig('name') ?? $this->getConfig('driver') ?? 'servicenow');
     }
 
     private function establishConnection(): object
