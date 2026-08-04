@@ -2,7 +2,7 @@
 
 Plan de développement et suivi d'avancement du plug-in Laravel snow-driver.
 
-État au 2026-08-04 : dépôt vierge, aucune ligne de code. La seule SFD existante est [001-driver-servicenow-crud.md](sfd/001-driver-servicenow-crud.md) (30 exigences, EX-101 à EX-130). La roadmap ci-dessous découpe ces exigences en phases techniques ordonnées par dépendance : la connexion doit exister avant le mapping des modèles, le mapping avant les requêtes, les requêtes avant les relations. Chaque exigence n'apparaît que dans une seule phase.
+État au 2026-08-04 : Phases 0 et 1 terminées (squelette de package, connexion et authentification). La seule SFD existante est [1. Driver ServiceNow.md](sfd/1.%20Driver%20ServiceNow.md) (30 exigences, EX-101 à EX-130). La roadmap ci-dessous découpe ces exigences en phases techniques ordonnées par dépendance : la connexion doit exister avant le mapping des modèles, le mapping avant les requêtes, les requêtes avant les relations. Chaque exigence n'apparaît que dans une seule phase.
 
 Convention de suivi : `[ ]` à faire, `[~]` en cours, `[x]` fait.
 
@@ -20,14 +20,14 @@ Prérequis non couvert par une exigence SFD mais nécessaire avant toute implém
 
 SFD : EX-101, EX-102, EX-103, EX-104, EX-121, EX-126
 
-- [ ] `ServiceNowConnection` : configuration via `config/database.php` (baseUrl, timeout)
-- [ ] Authentification Basic Auth (MVP) — EX-102
-- [ ] Abstraction `Credentials` (interface/abstract) pour permettre l'ajout futur d'OAuth2 client credentials sans casser l'API publique — EX-103
-- [ ] Injection des identifiants sur chaque requête, sans fuite en clair dans les logs — EX-104
-- [ ] Connexion paresseuse : aucune validation au boot, exception seulement à la première requête — EX-121
-- [ ] `ServiceNowConnectionException` dédiée en cas d'instance injoignable ou timeout dépassé — EX-126
-- Tests Unit : construction de la connexion, sélection des credentials, lazy-init
-- Tests Feature : échec de connexion (timeout/injoignable) déclenche la bonne exception
+- [x] `ServiceNowConnection` : configuration via `config/database.php` (baseUrl, timeout)
+- [x] Authentification Basic Auth (MVP) — EX-102
+- [x] Abstraction `Credentials` (interface/abstract) pour permettre l'ajout futur d'OAuth2 client credentials sans casser l'API publique — EX-103
+- [x] Injection des identifiants sur chaque requête, sans fuite en clair dans les logs — EX-104
+- [x] Connexion paresseuse : aucune validation au boot, exception seulement à la première requête — EX-121
+- [x] `ServiceNowConnectionException` dédiée en cas d'instance injoignable ou timeout dépassé — EX-126
+- [x] Tests Unit : construction de la connexion, sélection des credentials, lazy-init
+- [x] Tests Feature : échec de connexion (timeout/injoignable) déclenche la bonne exception
 
 ## Phase 2 — Client HTTP et gestion des erreurs API (fondation transverse)
 
@@ -104,4 +104,4 @@ SFD : EX-116, EX-117, EX-118, EX-129, EX-125
 
 - Convention d'implémentation : chaque exigence `EX-...` doit être référencée en commentaire dans le code qui l'implémente.
 - Si une nouvelle SFD est ajoutée (autre module, premier chiffre de l'identifiant différent de `1`), lui ajouter une section dédiée dans cette roadmap plutôt que de mélanger les phases.
-- Prochaine étape : démarrer la Phase 1 (connexion et authentification).
+- Prochaine étape : démarrer la Phase 2 (client HTTP et gestion des erreurs API).

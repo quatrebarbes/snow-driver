@@ -19,6 +19,9 @@ return [
 
         'servicenow' => [
             'driver' => 'servicenow',
+            // Sans objet pour ServiceNow (pas de base SQL) ; requis par
+            // Illuminate\Database\Connectors\ConnectionFactory.
+            'database' => '',
             'base_url' => env('SNOW_BASE_URL'),
             'timeout' => env('SNOW_TIMEOUT', 30),
 
