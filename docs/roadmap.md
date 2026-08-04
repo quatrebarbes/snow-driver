@@ -2,7 +2,7 @@
 
 Plan de développement et suivi d'avancement du plug-in Laravel snow-driver.
 
-État au 2026-08-04 : Phases 0, 1, 2, 3 et 4 terminées (squelette de package, connexion et authentification, client HTTP interne et gestion des erreurs API, mapping modèle Eloquent ↔ table ServiceNow, lecture des enregistrements via query builder). La seule SFD existante est [1. Driver ServiceNow.md](sfd/1.%20Driver%20ServiceNow.md) (30 exigences, EX-101 à EX-130). La roadmap ci-dessous découpe ces exigences en phases techniques ordonnées par dépendance : la connexion doit exister avant le mapping des modèles, le mapping avant les requêtes, les requêtes avant les relations. Chaque exigence n'apparaît que dans une seule phase.
+État au 2026-08-04 : Phases 0, 1, 2, 3, 4 et 5 terminées (squelette de package, connexion et authentification, client HTTP interne et gestion des erreurs API, mapping modèle Eloquent ↔ table ServiceNow, lecture des enregistrements via query builder, application de démo Blade dans `demo/`). La seule SFD existante est [1. Driver ServiceNow.md](sfd/1.%20Driver%20ServiceNow.md) (30 exigences, EX-101 à EX-130). La roadmap ci-dessous découpe ces exigences en phases techniques ordonnées par dépendance : la connexion doit exister avant le mapping des modèles, le mapping avant les requêtes, les requêtes avant les relations. Chaque exigence n'apparaît que dans une seule phase.
 
 Convention de suivi : `[ ]` à faire, `[~]` en cours, `[x]` fait.
 
@@ -68,12 +68,12 @@ SFD : EX-108, EX-109, EX-110, EX-111, EX-122, EX-128
 
 ## Phase 5 — Application de démonstration
 
-Non couvert par une exigence SFD : application d'exemple destinée à illustrer l'usage du driver, hébergée dans le dépôt (ex. `demo/`). Placée ici plutôt qu'en fin de roadmap car la lecture (Phase 4) est le premier point où l'IHM peut afficher des données ServiceNow réelles ; elle pourra être enrichie dans les phases suivantes (écriture, relations).
+Non couvert par une exigence SFD : application d'exemple destinée à illustrer l'usage du driver, hébergée dans le dépôt (`demo/`). Placée ici plutôt qu'en fin de roadmap car la lecture (Phase 4) est le premier point où l'IHM peut afficher des données ServiceNow réelles ; elle pourra être enrichie dans les phases suivantes (écriture, relations).
 
-- [ ] Application de démo consommant le package via des modèles `ServiceNowModel` réels
-- [ ] IHM (front) permettant de visualiser/manipuler des enregistrements ServiceNow au travers du driver
-- [ ] Dockerisation de l'app de démo (Dockerfile + service dans `docker-compose.yml`) pour un lancement en une commande
-- Tests : à définir selon la stack retenue pour l'IHM (Nuxt 3 pressenti, cf. stack projet)
+- [x] Application de démo Laravel (`demo/`) consommant le package via un repository composer `path` (`quatrebarbes/snow-driver`), sans base SQL locale (connexion par défaut = `servicenow`)
+- [x] IHM en Blade seul (pas de front JS/Nuxt) : menu des tables ServiceNow configurées (`demo/config/servicenow_demo.php`), liste paginée des enregistrements, détail d'un enregistrement, page d'erreur illustrant la hiérarchie d'exceptions du driver (EX-119, EX-120, EX-126, EX-130) — modèle générique `App\Models\ServiceNowRecord::forTable()` pour parcourir n'importe quelle table sans classe dédiée
+- [x] Dockerisation de l'app de démo (`demo/Dockerfile` + service `demo` dans `docker-compose.yml` à la racine) pour un lancement en une commande (`docker compose up --build`)
+- [x] Tests Feature (`demo/tests/Feature/ServiceNowTableMenuTest.php`) : menu accessible sans connexion ServiceNow (EX-121), table inconnue → 404
 
 ## Phase 6 — Écriture : création, modification, suppression
 
@@ -104,4 +104,4 @@ SFD : EX-116, EX-117, EX-118, EX-129, EX-125
 
 - Convention d'implémentation : chaque exigence `EX-...` doit être référencée en commentaire dans le code qui l'implémente.
 - Si une nouvelle SFD est ajoutée (autre module, premier chiffre de l'identifiant différent de `1`), lui ajouter une section dédiée dans cette roadmap plutôt que de mélanger les phases.
-- Prochaine étape : démarrer la Phase 5 (application de démonstration) ou la Phase 6 (écriture), selon la priorité métier.
+- Prochaine étape : démarrer la Phase 6 (écriture) ou la Phase 7 (relations), selon la priorité métier.

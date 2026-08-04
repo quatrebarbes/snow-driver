@@ -1,0 +1,9 @@
+services:
+  demo:
+    build:
+      context: .
+      dockerfile: demo/Dockerfile
+    env_file:
+      - demo/.env
+    ports:
+      - "8000:8000"

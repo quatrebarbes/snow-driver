@@ -1,0 +1,10 @@
+.git
+vendor
+demo/vendor
+tests
+docs
+.phpunit.result.cache
+demo/.phpunit.result.cache
+demo/storage/logs
+demo/.env
+demo/.env.*

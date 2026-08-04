@@ -5,7 +5,7 @@ Plug-in Laravel fournissant un driver de base de données, pour accéder aux obj
 ## Stack
 
 - Laravel 11, 12, 13
-- Nuxt 3
+- Blade (app de démo, pas de front JS)
 - docker & docker-compose
 
 ## Conventions de développement
