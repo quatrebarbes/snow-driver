@@ -2,7 +2,7 @@
 
 Plan de développement et suivi d'avancement du plug-in Laravel snow-driver.
 
-État au 2026-08-04 : Phases 0, 1, 2, 3, 4 et 5 terminées (squelette de package, connexion et authentification, client HTTP interne et gestion des erreurs API, mapping modèle Eloquent ↔ table ServiceNow, lecture des enregistrements via query builder, application de démo Blade dans `demo/`). La seule SFD existante est [1. Driver ServiceNow.md](sfd/1.%20Driver%20ServiceNow.md) (30 exigences, EX-101 à EX-130). La roadmap ci-dessous découpe ces exigences en phases techniques ordonnées par dépendance : la connexion doit exister avant le mapping des modèles, le mapping avant les requêtes, les requêtes avant les relations. Chaque exigence n'apparaît que dans une seule phase.
+État au 2026-08-04 : Phases 0 à 6 terminées (squelette de package, connexion et authentification, client HTTP interne et gestion des erreurs API, mapping modèle Eloquent ↔ table ServiceNow, lecture des enregistrements via query builder, application de démo Blade dans `demo/`, écriture create/update/delete). La seule SFD existante est [1. Driver ServiceNow.md](sfd/1.%20Driver%20ServiceNow.md) (30 exigences, EX-101 à EX-130). La roadmap ci-dessous découpe ces exigences en phases techniques ordonnées par dépendance : la connexion doit exister avant le mapping des modèles, le mapping avant les requêtes, les requêtes avant les relations. Chaque exigence n'apparaît que dans une seule phase.
 
 Convention de suivi : `[ ]` à faire, `[~]` en cours, `[x]` fait.
 
@@ -79,14 +79,13 @@ Non couvert par une exigence SFD : application d'exemple destinée à illustrer 
 
 SFD : EX-112, EX-113, EX-114, EX-115, EX-123, EX-124
 
-- [ ] Création via `save()` sur nouvelle instance → POST — EX-112
-- [ ] Modification via `save()`/`update()` → PUT/PATCH — EX-113
-- [ ] Suppression via `delete()` → DELETE — EX-114
-- [ ] Rafraîchissement automatique du modèle avec les valeurs retournées par ServiceNow après create/update — EX-115
-- [ ] Traitement best-effort des opérations groupées (ex. `saveMany`) : chaque enregistrement indépendant, retour détaillé succès/échecs, sans rollback applicatif — EX-123
-- [ ] Aucune détection/résolution de conflit concurrentiel : comportement natif ServiceNow (dernier écrivain gagnant) — EX-124 (documentation + non-régression, pas de mécanisme à construire)
-- Tests Unit : construction des payloads POST/PUT/PATCH/DELETE
-- Tests Feature : cycle create/update/delete complet, `saveMany` avec échec partiel
+- [x] Création via `save()` sur nouvelle instance → POST — EX-112 : `ServiceNowModel::performInsert()` appelle directement `tableApi()->post()` (contourne le cycle `Builder::insert()`/`Connection::insert()`, sans équivalent côté API Table, à l'image du contournement déjà pratiqué pour `select()` en Phase 4)
+- [x] Modification via `save()`/`update()` → PUT/PATCH — EX-113 : `ServiceNowModel::performUpdate()` envoie un PATCH (mise à jour partielle) des seuls attributs modifiés (`getDirtyForUpdate()`) ; aucun appel si le modèle n'est pas dirty
+- [x] Suppression via `delete()` → DELETE — EX-114 : `ServiceNowModel::performDeleteOnModel()`
+- [x] Rafraîchissement automatique du modèle avec les valeurs retournées par ServiceNow après create/update — EX-115 : `setRawAttributes()` avec le corps de la réponse ServiceNow (sys_id généré, timestamps serveur...) ; pas d'appel à `updateTimestamps()` côté client, ces champs étant calculés par ServiceNow
+- [x] Traitement best-effort des opérations groupées (`ServiceNowModel::saveMany()`) : chaque enregistrement indépendant (une exception `RuntimeException` sur l'un n'interrompt pas les suivants), retour détaillé via `SaveManyResult`/`SaveManyFailure` (successes/failures), sans rollback applicatif — EX-123
+- [x] Aucune détection/résolution de conflit concurrentiel : comportement natif ServiceNow (dernier écrivain gagnant) — EX-124 (documentation dans `ServiceNowModel::performUpdate()` + test de non-régression vérifiant l'absence d'en-tête conditionnel, pas de mécanisme construit)
+- Tests Feature (`tests/Feature/ServiceNowWriteTest.php`) : construction des payloads POST/PATCH/DELETE, cycle create/update/delete complet, `saveMany` avec échec partiel, non-régression EX-124
 
 ## Phase 7 — Relations via champs de référence
 
@@ -104,4 +103,4 @@ SFD : EX-116, EX-117, EX-118, EX-129, EX-125
 
 - Convention d'implémentation : chaque exigence `EX-...` doit être référencée en commentaire dans le code qui l'implémente.
 - Si une nouvelle SFD est ajoutée (autre module, premier chiffre de l'identifiant différent de `1`), lui ajouter une section dédiée dans cette roadmap plutôt que de mélanger les phases.
-- Prochaine étape : démarrer la Phase 6 (écriture) ou la Phase 7 (relations), selon la priorité métier.
+- Prochaine étape : démarrer la Phase 7 (relations).

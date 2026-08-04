@@ -10,4 +10,5 @@ use Quatrebarbes\SnowDriver\Eloquent\ServiceNowModel;
  */
 class Incident extends ServiceNowModel
 {
+    protected $guarded = [];
 }
