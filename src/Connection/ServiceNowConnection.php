@@ -10,6 +10,7 @@ use InvalidArgumentException;
 use Quatrebarbes\SnowDriver\Auth\Credentials;
 use Quatrebarbes\SnowDriver\Exceptions\ServiceNowConnectionException;
 use Quatrebarbes\SnowDriver\Http\TableApiClient;
+use Quatrebarbes\SnowDriver\Query\ServiceNowGrammar;
 
 /**
  * EX-101 : connexion à une instance ServiceNow configurée via config/database.php.
@@ -73,6 +74,75 @@ class ServiceNowConnection extends Connection
     public function tableApi(): TableApiClient
     {
         return new TableApiClient($this);
+    }
+
+    protected function getDefaultQueryGrammar(): ServiceNowGrammar
+    {
+        return new ServiceNowGrammar($this);
+    }
+
+    /**
+     * EX-108, EX-109, EX-110, EX-111 : exécute la requête compilée par
+     * ServiceNowGrammar (table + sysparm_query + limite/décalage) via l'API
+     * Table, au lieu du cycle PDO standard.
+     *
+     * On n'utilise volontairement pas Connection::run() : celui-ci
+     * envelopperait toute exception (ServiceNowApiException,
+     * ServiceNowAuthenticationException...) dans une Illuminate\Database\QueryException
+     * générique, ce qui casserait la distinction attendue par EX-119/EX-120/EX-130.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function select($query, $bindings = [], $useReadPdo = true, array $fetchUsing = [])
+    {
+        $decoded = json_decode($query, true);
+
+        $table = $decoded['table'];
+        $sysparmQuery = $decoded['query'];
+        $fields = $decoded['fields'];
+        $limit = $decoded['limit'];
+        $offset = $decoded['offset'] ?? 0;
+
+        $params = array_filter([
+            'sysparm_query' => $sysparmQuery !== '' ? $sysparmQuery : null,
+            'sysparm_fields' => $fields !== null ? implode(',', $fields) : null,
+        ], fn ($value) => $value !== null);
+
+        if ($limit !== null) {
+            return $this->tableApi()->get('/api/now/table/'.$table, $params + [
+                'sysparm_limit' => $limit,
+                'sysparm_offset' => $offset,
+            ]);
+        }
+
+        return $this->selectAllPages($table, $params, $offset);
+    }
+
+    /**
+     * EX-122 : pagination automatique et transparente pour all()/get() sans
+     * limite explicite, en enchaînant les appels avec un décalage croissant
+     * tant que l'API retourne une page pleine.
+     *
+     * @param  array<string, mixed>  $params
+     * @return array<int, array<string, mixed>>
+     */
+    private function selectAllPages(string $table, array $params, int $offset): array
+    {
+        $pageSize = (int) config('servicenow.pagination.page_size');
+
+        $records = [];
+
+        do {
+            $page = $this->tableApi()->get('/api/now/table/'.$table, $params + [
+                'sysparm_limit' => $pageSize,
+                'sysparm_offset' => $offset,
+            ]);
+
+            $records = array_merge($records, $page);
+            $offset += $pageSize;
+        } while (count($page) === $pageSize);
+
+        return $records;
     }
 
     private function establishConnection(): object

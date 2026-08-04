@@ -2,7 +2,7 @@
 
 Plan de développement et suivi d'avancement du plug-in Laravel snow-driver.
 
-État au 2026-08-04 : Phases 0, 1, 2 et 3 terminées (squelette de package, connexion et authentification, client HTTP interne et gestion des erreurs API, mapping modèle Eloquent ↔ table ServiceNow). La seule SFD existante est [1. Driver ServiceNow.md](sfd/1.%20Driver%20ServiceNow.md) (30 exigences, EX-101 à EX-130). La roadmap ci-dessous découpe ces exigences en phases techniques ordonnées par dépendance : la connexion doit exister avant le mapping des modèles, le mapping avant les requêtes, les requêtes avant les relations. Chaque exigence n'apparaît que dans une seule phase.
+État au 2026-08-04 : Phases 0, 1, 2, 3 et 4 terminées (squelette de package, connexion et authentification, client HTTP interne et gestion des erreurs API, mapping modèle Eloquent ↔ table ServiceNow, lecture des enregistrements via query builder). La seule SFD existante est [1. Driver ServiceNow.md](sfd/1.%20Driver%20ServiceNow.md) (30 exigences, EX-101 à EX-130). La roadmap ci-dessous découpe ces exigences en phases techniques ordonnées par dépendance : la connexion doit exister avant le mapping des modèles, le mapping avant les requêtes, les requêtes avant les relations. Chaque exigence n'apparaît que dans une seule phase.
 
 Convention de suivi : `[ ]` à faire, `[~]` en cours, `[x]` fait.
 
@@ -57,14 +57,14 @@ SFD : EX-105, EX-106, EX-107, EX-127
 
 SFD : EX-108, EX-109, EX-110, EX-111, EX-122, EX-128
 
-- [ ] Grammar/Builder ServiceNow : `all()`, `get()`, `find()`, `first()` via GET sur l'API Table — EX-108
-- [ ] Traduction des `where()` en `sysparm_query` (syntaxe encodée ServiceNow) — EX-109
-- [ ] Traduction `take/limit`, `skip/offset`, `paginate` → `sysparm_limit`/`sysparm_offset` — EX-110
-- [ ] Traduction `orderBy()` → `sysparm_order_by` / `sysparm_order_by_desc` — EX-111
-- [ ] Pagination automatique transparente pour `all()`/`get()` sans limite explicite, dépassant la limite max de l'API — EX-122
-- [ ] Exception explicite pour toute clause du query builder sans équivalent ServiceNow (pas de traduction silencieuse incorrecte) — EX-128
-- Tests Unit : traduction de chaque clause (where, limit/offset, orderBy) vers les paramètres `sysparm_*`
-- Tests Feature : lecture paginée automatique, clause non supportée → exception
+- [x] Grammar/Builder ServiceNow : `all()`, `get()`, `find()`, `first()` via GET sur l'API Table — EX-108 : `ServiceNowGrammar::compileSelect()` compile le query builder Eloquent vers un tableau (table, sysparm_query, fields, limit, offset) sérialisé en JSON ; `ServiceNowConnection::select()` le décode et exécute via `TableApiClient`, sans passer par `Connection::run()` (qui envelopperait les exceptions dédiées dans une `QueryException` générique)
+- [x] Traduction des `where()` en `sysparm_query` (syntaxe encodée ServiceNow) — EX-109 : opérateurs `=`, `!=`/`<>`, `>`, `>=`, `<`, `<=`, `like`/`not like` (CONTAINS), `whereIn`/`whereNotIn`, `whereNull`/`whereNotNull` (ISEMPTY/ISNOTEMPTY), `whereBetween` ; combinaison and/or à plat via `^`/`^OR`
+- [x] Traduction `take/limit`, `skip/offset` → `sysparm_limit`/`sysparm_offset` — EX-110 (limite explicite = un seul appel ; `paginate()` non supporté car il nécessite un COUNT préalable que l'API Table n'expose pas nativement sans lecture d'en-tête HTTP dédiée — limitation connue, hors périmètre de cette phase)
+- [x] Traduction `orderBy()` → directives `ORDERBY`/`ORDERBYDESC` ajoutées à `sysparm_query` — EX-111 (l'API Table ServiceNow n'expose pas de paramètre `sysparm_order_by` séparé ; le tri s'exprime dans la requête encodée elle-même)
+- [x] Pagination automatique transparente pour `all()`/`get()` sans limite explicite, dépassant la limite max de l'API — EX-122 : `ServiceNowConnection::selectAllPages()`, taille de page configurable (`servicenow.pagination.page_size`)
+- [x] Exception explicite (`ServiceNowUnsupportedQueryException`) pour toute clause du query builder sans équivalent ServiceNow (join, groupBy, having, union, lock, distinct, agrégats, wheres imbriqués/sous-requêtes/comparaison de colonnes, opérateurs non mappés, `whereNotBetween`) — EX-128
+- [x] Tests Unit : traduction de chaque clause (where, limit/offset, orderBy) vers les paramètres `sysparm_*` (`tests/Unit/Query/ServiceNowGrammarTest.php`)
+- [x] Tests Feature : lecture paginée automatique, clause non supportée → exception (`tests/Feature/ServiceNowReadTest.php`)
 
 ## Phase 5 — Application de démonstration
 
@@ -104,4 +104,4 @@ SFD : EX-116, EX-117, EX-118, EX-129, EX-125
 
 - Convention d'implémentation : chaque exigence `EX-...` doit être référencée en commentaire dans le code qui l'implémente.
 - Si une nouvelle SFD est ajoutée (autre module, premier chiffre de l'identifiant différent de `1`), lui ajouter une section dédiée dans cette roadmap plutôt que de mélanger les phases.
-- Prochaine étape : démarrer la Phase 4 (lecture des enregistrements, query builder).
+- Prochaine étape : démarrer la Phase 5 (application de démonstration) ou la Phase 6 (écriture), selon la priorité métier.

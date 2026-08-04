@@ -34,4 +34,25 @@ return [
 
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Pagination
+    |--------------------------------------------------------------------------
+    |
+    | EX-122 : nombre d'enregistrements demandés par appel à l'API Table lors
+    | de l'enchaînement automatique de pages (all()/get() sans limite
+    | explicite). Sans effet sur un appel avec limite explicite (take/limit,
+    | paginate), qui correspond toujours à un seul appel.
+    |
+    | 10 000 correspond à la limite par défaut de l'API Table ServiceNow
+    | (propriété système glide.rest.query.limit.max) : au-delà, ServiceNow
+    | tronque silencieusement la réponse sans erreur. À abaisser via
+    | SNOW_PAGE_SIZE si l'instance configure une limite plus restrictive.
+    |
+    */
+
+    'pagination' => [
+        'page_size' => env('SNOW_PAGE_SIZE', 10000),
+    ],
+
 ];
