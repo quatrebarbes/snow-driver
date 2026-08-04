@@ -2,7 +2,7 @@
 
 Plan de développement et suivi d'avancement du plug-in Laravel snow-driver.
 
-État au 2026-08-04 : Phases 0 et 1 terminées (squelette de package, connexion et authentification). La seule SFD existante est [1. Driver ServiceNow.md](sfd/1.%20Driver%20ServiceNow.md) (30 exigences, EX-101 à EX-130). La roadmap ci-dessous découpe ces exigences en phases techniques ordonnées par dépendance : la connexion doit exister avant le mapping des modèles, le mapping avant les requêtes, les requêtes avant les relations. Chaque exigence n'apparaît que dans une seule phase.
+État au 2026-08-04 : Phases 0, 1 et 2 terminées (squelette de package, connexion et authentification, client HTTP interne et gestion des erreurs API). La seule SFD existante est [1. Driver ServiceNow.md](sfd/1.%20Driver%20ServiceNow.md) (30 exigences, EX-101 à EX-130). La roadmap ci-dessous découpe ces exigences en phases techniques ordonnées par dépendance : la connexion doit exister avant le mapping des modèles, le mapping avant les requêtes, les requêtes avant les relations. Chaque exigence n'apparaît que dans une seule phase.
 
 Convention de suivi : `[ ]` à faire, `[~]` en cours, `[x]` fait.
 
@@ -35,12 +35,12 @@ SFD : EX-119, EX-120, EX-130
 
 À construire avant les phases 4/5/6 car toutes les opérations CRUD et relations s'appuient sur ce client.
 
-- [ ] Client HTTP interne encapsulant les appels à l'API Table ServiceNow
-- [ ] Hiérarchie d'exceptions dédiées : `ServiceNowApiException` (code + message ServiceNow) pour tout 4xx/5xx — EX-119
-- [ ] `ServiceNowAuthenticationException` distincte pour 401/403 — EX-120
-- [ ] `ServiceNowMalformedResponseException` pour réponse vide/malformée (coupure réseau, timeout partiel) — EX-130
-- Tests Unit : mapping code HTTP → exception
-- Tests Feature : appels simulés (HTTP fake) couvrant 401, 403, 4xx générique, 5xx, réponse vide
+- [x] Client HTTP interne encapsulant les appels à l'API Table ServiceNow (`TableApiClient`, exposé via `ServiceNowConnection::tableApi()`)
+- [x] Hiérarchie d'exceptions dédiées : `ServiceNowApiException` (code + message ServiceNow) pour tout 4xx/5xx — EX-119
+- [x] `ServiceNowAuthenticationException` distincte pour 401/403 — EX-120
+- [x] `ServiceNowMalformedResponseException` pour réponse vide/malformée (coupure réseau, timeout partiel) — EX-130
+- [x] Tests Unit : mapping code HTTP → exception
+- [x] Tests Feature : appels simulés (HTTP fake) couvrant 401, 403, 4xx générique, 5xx, réponse vide
 
 ## Phase 3 — Mapping modèle Eloquent ↔ table ServiceNow
 
@@ -104,4 +104,4 @@ SFD : EX-116, EX-117, EX-118, EX-129, EX-125
 
 - Convention d'implémentation : chaque exigence `EX-...` doit être référencée en commentaire dans le code qui l'implémente.
 - Si une nouvelle SFD est ajoutée (autre module, premier chiffre de l'identifiant différent de `1`), lui ajouter une section dédiée dans cette roadmap plutôt que de mélanger les phases.
-- Prochaine étape : démarrer la Phase 2 (client HTTP et gestion des erreurs API).
+- Prochaine étape : démarrer la Phase 3 (mapping modèle Eloquent ↔ table ServiceNow).

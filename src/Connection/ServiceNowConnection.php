@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Http;
 use InvalidArgumentException;
 use Quatrebarbes\SnowDriver\Auth\Credentials;
 use Quatrebarbes\SnowDriver\Exceptions\ServiceNowConnectionException;
+use Quatrebarbes\SnowDriver\Http\TableApiClient;
 
 /**
  * EX-101 : connexion à une instance ServiceNow configurée via config/database.php.
@@ -64,6 +65,14 @@ class ServiceNowConnection extends Connection
         return $this->credentials()->applyTo(
             Http::baseUrl($this->baseUrl())->timeout($this->timeout())
         );
+    }
+
+    /**
+     * Client HTTP interne pour les appels à l'API Table (Phase 2).
+     */
+    public function tableApi(): TableApiClient
+    {
+        return new TableApiClient($this);
     }
 
     private function establishConnection(): object
