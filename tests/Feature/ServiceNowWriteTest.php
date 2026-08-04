@@ -4,13 +4,14 @@ namespace Quatrebarbes\SnowDriver\Tests\Feature;
 
 use Illuminate\Support\Facades\Http;
 use Quatrebarbes\SnowDriver\Exceptions\ServiceNowApiException;
+use Quatrebarbes\SnowDriver\Exceptions\ServiceNowUnsupportedQueryException;
 use Quatrebarbes\SnowDriver\Tests\Fixtures\Incident;
 use Quatrebarbes\SnowDriver\Tests\TestCase;
 
 /**
- * EX-112 à EX-115, EX-123, EX-124 : création, modification et suppression
- * des enregistrements au travers des méthodes standards Eloquent (save(),
- * update(), delete()), via l'API Table de ServiceNow.
+ * EX-112 à EX-115, EX-123, EX-124, EX-131 : création, modification et
+ * suppression des enregistrements au travers des méthodes standards Eloquent
+ * (save(), update(), delete()), via l'API Table de ServiceNow.
  */
 class ServiceNowWriteTest extends TestCase
 {
@@ -172,6 +173,34 @@ class ServiceNowWriteTest extends TestCase
 
         Http::assertSent(fn ($request) => ! $request->hasHeader('If-Match')
             && ! $request->hasHeader('If-Unmodified-Since'));
+    }
+
+    public function test_mass_update_via_the_query_builder_is_rejected_without_any_request(): void
+    {
+        // EX-131 : Model::where(...)->update([...]) sans instance chargée.
+        Http::fake();
+
+        $this->expectException(ServiceNowUnsupportedQueryException::class);
+
+        try {
+            Incident::where('priority', '3')->update(['priority' => '1']);
+        } finally {
+            Http::assertNothingSent();
+        }
+    }
+
+    public function test_mass_delete_via_the_query_builder_is_rejected_without_any_request(): void
+    {
+        // EX-131 : Model::where(...)->delete() sans instance chargée.
+        Http::fake();
+
+        $this->expectException(ServiceNowUnsupportedQueryException::class);
+
+        try {
+            Incident::where('priority', '3')->delete();
+        } finally {
+            Http::assertNothingSent();
+        }
     }
 
     private function existingIncident(array $attributes): Incident

@@ -1,0 +1,16 @@
+<?php
+
+namespace {{ namespace }};
+
+use Quatrebarbes\SnowDriver\Eloquent\ServiceNowModel;
+{{ uses }}
+/**
+ * Modèle généré automatiquement par le driver ServiceNow pour la table
+ * "{{ table }}" (EX-202, EX-203). Ce fichier n'est écrit qu'une seule fois :
+ * toute modification manuelle est conservée aux démarrages suivants
+ * (aucune régénération si le fichier existe déjà).
+ */
+class {{ class }} extends ServiceNowModel
+{
+    protected $table = '{{ table }}';
+{{ fillable }}{{ casts }}{{ methods }}}

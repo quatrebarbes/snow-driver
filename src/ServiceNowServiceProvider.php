@@ -3,8 +3,10 @@
 namespace Quatrebarbes\SnowDriver;
 
 use Illuminate\Database\Connection;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\ServiceProvider;
 use Quatrebarbes\SnowDriver\Connection\ServiceNowConnection;
+use Quatrebarbes\SnowDriver\Generator\ModelFileGenerator;
 
 class ServiceNowServiceProvider extends ServiceProvider
 {
@@ -26,6 +28,39 @@ class ServiceNowServiceProvider extends ServiceProvider
         Connection::resolverFor('servicenow', function ($connection, $database, $prefix, $config) {
             return new ServiceNowConnection($database, $prefix, $config);
         });
+
+        $this->generateModels();
+    }
+
+    /**
+     * EX-202 : génère, à chaque démarrage de l'application hôte, les modèles
+     * manquants pour les tables déclarées via servicenow.models.tables.
+     * Retour immédiat si ce tableau est vide (EX-201, limite SFD) : aucun
+     * appel réseau, aucune connexion établie (cohérent avec la connexion
+     * paresseuse d'EX-121).
+     */
+    private function generateModels(): void
+    {
+        $config = $this->app->make('config');
+
+        $tables = (array) $config->get('servicenow.models.tables', []);
+
+        if ($tables === []) {
+            return;
+        }
+
+        $namespace = (string) $config->get('servicenow.models.namespace', 'App\\Models');
+        $connectionName = (string) $config->get('servicenow.default', 'servicenow');
+
+        $connection = $this->app->make('db')->connection($connectionName);
+
+        if (! $connection instanceof ServiceNowConnection) {
+            Log::warning("snow-driver: la connexion \"{$connectionName}\" configurée pour la génération de modèles n'est pas une connexion ServiceNow ; génération ignorée.");
+
+            return;
+        }
+
+        (new ModelFileGenerator($connection))->generate($tables, $namespace);
     }
 
     /**

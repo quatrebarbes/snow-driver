@@ -128,6 +128,35 @@ class ServiceNowGrammar extends Grammar
     }
 
     /**
+     * EX-131 : une mise à jour de masse via le query builder
+     * (Model::where(...)->update([...])) n'a pas d'équivalent atomique côté
+     * API Table ServiceNow (qui n'opère que sur un enregistrement identifié
+     * par son sys_id) ; elle est rejetée explicitement ici, avant tout appel
+     * réseau, plutôt que d'échouer plus loin en erreur PHP de bas niveau sur
+     * un pseudo-PDO (ServiceNowConnection::establishConnection() ne renvoie
+     * pas un vrai PDO). Les mises à jour passent par une instance chargée
+     * (ServiceNowModel::performUpdate()), qui ne compile jamais cette
+     * méthode.
+     */
+    public function compileUpdate(Builder $query, array $values)
+    {
+        throw ServiceNowUnsupportedQueryException::forClause(
+            'mise à jour de masse via le query builder (Model::where(...)->update(...)) : chaque modification doit passer par une instance chargée (save()/update() sur un modèle)'
+        );
+    }
+
+    /**
+     * EX-131 : même garde-fou que compileUpdate(), pour la suppression de
+     * masse via le query builder (Model::where(...)->delete()).
+     */
+    public function compileDelete(Builder $query)
+    {
+        throw ServiceNowUnsupportedQueryException::forClause(
+            'suppression de masse via le query builder (Model::where(...)->delete()) : chaque suppression doit passer par une instance chargée (delete() sur un modèle)'
+        );
+    }
+
+    /**
      * EX-317 : le test d'existence se compile en une lecture bornée à un
      * enregistrement, sans comptage.
      *
