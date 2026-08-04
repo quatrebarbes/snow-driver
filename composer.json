@@ -1,0 +1,44 @@
+{
+    "name": "quatrebarbes/snow-driver",
+    "description": "Driver de base de données Laravel pour accéder aux objets d'une plateforme ServiceNow au travers de modèles Eloquent.",
+    "type": "library",
+    "license": "MIT",
+    "keywords": ["laravel", "servicenow", "eloquent", "database-driver"],
+    "authors": [
+        {
+            "name": "Jean de Quatrebarbes",
+            "email": "jean.de.quatrebarbes@hotmail.fr"
+        }
+    ],
+    "require": {
+        "php": "^8.2",
+        "illuminate/database": "^11.0|^12.0|^13.0",
+        "illuminate/support": "^11.0|^12.0|^13.0"
+    },
+    "require-dev": {
+        "orchestra/testbench": "^9.0|^10.0|^11.0",
+        "phpunit/phpunit": "^10.5|^11.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Quatrebarbes\\SnowDriver\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Quatrebarbes\\SnowDriver\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Quatrebarbes\\SnowDriver\\ServiceNowServiceProvider"
+            ]
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true,
+    "config": {
+        "sort-packages": true
+    }
+}

@@ -10,10 +10,11 @@ Convention de suivi : `[ ]` à faire, `[~]` en cours, `[x]` fait.
 
 Prérequis non couvert par une exigence SFD mais nécessaire avant toute implémentation.
 
-- [ ] Squelette de package Laravel (`composer.json`, PSR-4 `src/`, `tests/`)
-- [ ] `ServiceNowServiceProvider` (enregistrement du driver de connexion, publication de config)
-- [ ] Config publiable `config/servicenow.php` (connexions, credentials, timeout)
-- [ ] Setup PHPUnit / Orchestra Testbench (tests Unit + Feature sur un package Laravel isolé)
+- [x] Squelette de package Laravel (`composer.json`, PSR-4 `src/`, `tests/`)
+- [x] `ServiceNowServiceProvider` (publication de config ; l'enregistrement effectif du driver de connexion est fait en Phase 1 avec `ServiceNowConnection`)
+- [x] Config publiable `config/servicenow.php` (connexions, credentials, timeout)
+- [x] Setup PHPUnit / Orchestra Testbench (tests Unit + Feature sur un package Laravel isolé)
+- [x] Supprimer tout fichier par défaut qui est inutile au repo courant (aucun généré)
 
 ## Phase 1 — Connexion et authentification
 
@@ -94,4 +95,4 @@ SFD : EX-116, EX-117, EX-118, EX-129, EX-125
 
 - Convention d'implémentation : chaque exigence `EX-...` doit être référencée en commentaire dans le code qui l'implémente.
 - Si une nouvelle SFD est ajoutée (autre module, premier chiffre de l'identifiant différent de `1`), lui ajouter une section dédiée dans cette roadmap plutôt que de mélanger les phases.
-- Prochaine étape : démarrer la Phase 0 (squelette du package).
+- Prochaine étape : démarrer la Phase 1 (connexion et authentification).
