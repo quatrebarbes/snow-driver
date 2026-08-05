@@ -33,16 +33,23 @@ class ModelFileGenerator
 
     /**
      * EX-327 : types internes ServiceNow disposant d'un équivalent de
-     * conversion Eloquent.
+     * conversion Eloquent, sous la forme du fragment PHP à placer tel quel
+     * après le "=>" dans $casts (littéral entre quotes pour les types
+     * natifs, référence de classe pour un cast dédié).
+     *
+     * Le type booléen utilise un cast dédié (ServiceNowBoolean) plutôt que
+     * le cast natif 'boolean' d'Eloquent : ServiceNow renvoie ces champs
+     * sous forme de chaîne ("true"/"false"), et `(bool) "false"` vaut
+     * toujours `true` en PHP, toute chaîne non vide étant vraie.
      *
      * @var array<string, string>
      */
     private const CASTS = [
-        'boolean' => 'boolean',
-        'integer' => 'integer',
-        'decimal' => 'decimal:2',
-        'date' => 'date',
-        'datetime' => 'datetime',
+        'boolean' => '\Quatrebarbes\SnowDriver\Eloquent\Casts\ServiceNowBoolean::class',
+        'integer' => "'integer'",
+        'decimal' => "'decimal:2'",
+        'date' => "'date'",
+        'datetime' => "'datetime'",
     ];
 
     public function __construct(private readonly ServiceNowConnection $connection)
@@ -340,7 +347,7 @@ class ModelFileGenerator
         $lines = [];
 
         foreach ($casts as $field => $cast) {
-            $lines[] = "        '{$field}' => '{$cast}',";
+            $lines[] = "        '{$field}' => {$cast},";
         }
 
         return "\n    protected \$casts = [\n".implode("\n", $lines)."\n    ];\n";
