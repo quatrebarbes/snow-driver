@@ -18,6 +18,7 @@ La génération automatique de modèles pour les tables configurées reste à im
 
 - PHP ^8.2
 - Laravel 11, 12 ou 13 (`illuminate/database`, `illuminate/http`, `illuminate/support`)
+- Service Now Zurich
 
 ## Installation
 

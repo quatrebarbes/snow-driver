@@ -92,7 +92,7 @@ class DictionaryReader
      * EX-304 : champs d'une table, ceux hérités de ses tables ancêtres
      * inclus, ordonnés de la table la plus générale à la table interrogée.
      *
-     * @return array<int, array{table: string, element: string, internal_type: string, reference_table: string|null, max_length: int|null, mandatory: bool, read_only: bool, default: string|null, label: string|null}>
+     * @return array<int, array{table: string, element: string, internal_type: string, reference_table: string|null, max_length: int|null, mandatory: bool, read_only: bool, display: bool, default: string|null, label: string|null}>
      */
     public function fields(string $table): array
     {
@@ -105,7 +105,7 @@ class DictionaryReader
 
             $records = $this->connection->fetchAllPages('sys_dictionary', [
                 'sysparm_query' => 'nameIN'.implode(',', $chain).'^elementISNOTEMPTY^active=true',
-                'sysparm_fields' => 'name,element,internal_type,reference,max_length,mandatory,read_only,default_value,column_label',
+                'sysparm_fields' => 'name,element,internal_type,reference,max_length,mandatory,read_only,display,default_value,column_label',
                 'sysparm_display_value' => 'all',
             ]);
 
@@ -122,8 +122,31 @@ class DictionaryReader
 
             usort($fields, fn (array $a, array $b) => $rank[$a['table']] <=> $rank[$b['table']]);
 
-            return $fields;
+            return $this->deduplicateByElement($fields);
         });
+    }
+
+    /**
+     * Une table enfant peut disposer, pour un champ hérité, de son propre
+     * enregistrement sys_dictionary surchargeant certains attributs (ex.
+     * read_only) de la définition portée par une table ancêtre : ne
+     * conserver que la définition la plus spécifique évite qu'une définition
+     * héritée, moins restrictive, ne rende à tort un champ modifiable.
+     *
+     * @param  array<int, array<string, mixed>>  $fields  ordonnés de la table
+     *     la plus générale à la plus spécifique (cf. tri par rang dans
+     *     fields())
+     * @return array<int, array<string, mixed>>
+     */
+    private function deduplicateByElement(array $fields): array
+    {
+        $byElement = [];
+
+        foreach ($fields as $field) {
+            $byElement[$field['element']] = $field;
+        }
+
+        return array_values($byElement);
     }
 
     /**
@@ -239,7 +262,7 @@ class DictionaryReader
 
     /**
      * @param  array<string, mixed>  $record
-     * @return array{table: string, element: string, internal_type: string, reference_table: string|null, max_length: int|null, mandatory: bool, read_only: bool, default: string|null, label: string|null}|null
+     * @return array{table: string, element: string, internal_type: string, reference_table: string|null, max_length: int|null, mandatory: bool, read_only: bool, display: bool, default: string|null, label: string|null}|null
      */
     private function normalizeField(array $record): ?array
     {
@@ -260,6 +283,9 @@ class DictionaryReader
             'max_length' => is_numeric($maxLength) ? (int) $maxLength : null,
             'mandatory' => $this->isTrue($record['mandatory'] ?? null),
             'read_only' => $this->isTrue($record['read_only'] ?? null),
+            // EX-328 : champ marqué display par le dictionnaire, utilisé pour
+            // ordonner $fillable dans les modèles générés (Phase 9).
+            'display' => $this->isTrue($record['display'] ?? null),
             'default' => $this->technicalValue($record['default_value'] ?? null),
             'label' => $this->displayValue($record['column_label'] ?? null),
         ];

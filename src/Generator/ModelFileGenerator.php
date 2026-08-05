@@ -214,17 +214,47 @@ class ModelFileGenerator
      * EX-325, EX-326 : champs modifiables par assignation de masse, limités
      * aux champs inscriptibles (non read_only) et hors champs techniques.
      *
+     * EX-328, EX-329 : le champ display (s'il figure parmi les champs
+     * modifiables) est placé en tête, suivi des champs mandatory, puis des
+     * autres champs modifiables — dans chaque groupe, l'ordre d'EX-304 est
+     * préservé. En l'absence de champ display modifiable, la liste commence
+     * directement par les champs mandatory. Si plusieurs champs sont marqués
+     * display (dictionnaire non conforme aux conventions ServiceNow), seul le
+     * premier rencontré dans l'ordre d'EX-304 est placé en tête ; les autres
+     * restent classés selon leur seul caractère mandatory.
+     *
      * @param  array<int, array<string, mixed>>  $fields
      * @return array<int, string>
      */
     private function fillableFields(array $fields): array
     {
-        $writable = array_filter(
+        $writable = array_values(array_filter(
             $fields,
             fn (array $field) => ! $field['read_only'] && ! in_array($field['element'], self::TECHNICAL_FIELDS, true)
-        );
+        ));
 
-        return array_values(array_map(fn (array $field) => $field['element'], $writable));
+        $displayIndex = null;
+
+        foreach ($writable as $index => $field) {
+            if ($field['display']) {
+                $displayIndex = $index;
+                break;
+            }
+        }
+
+        $display = [];
+
+        if ($displayIndex !== null) {
+            $display[] = $writable[$displayIndex];
+            unset($writable[$displayIndex]);
+        }
+
+        $mandatory = array_filter($writable, fn (array $field) => $field['mandatory']);
+        $rest = array_filter($writable, fn (array $field) => ! $field['mandatory']);
+
+        $ordered = array_merge($display, $mandatory, $rest);
+
+        return array_values(array_map(fn (array $field) => $field['element'], $ordered));
     }
 
     /**

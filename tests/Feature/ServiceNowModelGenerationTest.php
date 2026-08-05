@@ -64,6 +64,53 @@ class ServiceNowModelGenerationTest extends TestCase
         $this->assertStringContainsString("'active' => 'boolean'", $content);
     }
 
+    public function test_fillable_starts_with_the_display_field_then_mandatory_fields(): void
+    {
+        // EX-328 : short_description (display) en tête, puis priority
+        // (mandatory), puis les autres champs modifiables, dans l'ordre
+        // EX-304 au sein de chaque groupe.
+        $this->fakeDictionary([
+            'incident' => [
+                $this->field('active', 'boolean'),
+                $this->field('short_description', 'string', display: true),
+                $this->field('priority', 'integer', mandatory: true),
+                $this->field('category', 'string'),
+            ],
+        ]);
+
+        (new ModelFileGenerator($this->connection()))->generate(['incident'], 'App\\Models');
+
+        $content = $this->generatedContent('Incident');
+
+        $this->assertMatchesRegularExpression(
+            '/\$fillable = \[\'short_description\', \'priority\', \'active\', \'category\'\]/',
+            $content
+        );
+    }
+
+    public function test_fillable_starts_with_mandatory_fields_when_no_field_is_marked_display(): void
+    {
+        // EX-329 : aucun champ display parmi les champs modifiables -> la
+        // liste commence directement par les champs mandatory, sans champ de
+        // tête ni erreur.
+        $this->fakeDictionary([
+            'incident' => [
+                $this->field('active', 'boolean'),
+                $this->field('priority', 'integer', mandatory: true),
+                $this->field('category', 'string'),
+            ],
+        ]);
+
+        (new ModelFileGenerator($this->connection()))->generate(['incident'], 'App\\Models');
+
+        $content = $this->generatedContent('Incident');
+
+        $this->assertMatchesRegularExpression(
+            '/\$fillable = \[\'priority\', \'active\', \'category\'\]/',
+            $content
+        );
+    }
+
     public function test_it_does_not_overwrite_an_existing_model_file(): void
     {
         // Limite SFD : préserve toute personnalisation manuelle.
@@ -221,15 +268,16 @@ class ServiceNowModelGenerationTest extends TestCase
     /**
      * @return array<string, mixed>
      */
-    private function field(string $element, string $internalType, string $reference = '', bool $readOnly = false): array
+    private function field(string $element, string $internalType, string $reference = '', bool $readOnly = false, bool $mandatory = false, bool $display = false): array
     {
         return [
             'element' => $element,
             'internal_type' => $internalType,
             'reference' => $reference,
             'max_length' => '40',
-            'mandatory' => 'false',
+            'mandatory' => $mandatory ? 'true' : 'false',
             'read_only' => $readOnly ? 'true' : 'false',
+            'display' => $display ? 'true' : 'false',
             'default_value' => '',
             'column_label' => ucfirst(str_replace('_', ' ', $element)),
         ];

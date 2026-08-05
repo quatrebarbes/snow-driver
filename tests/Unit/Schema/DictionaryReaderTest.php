@@ -108,6 +108,87 @@ class DictionaryReaderTest extends TestCase
         $this->assertSame('Name', $fields[0]['label']);
     }
 
+    public function test_it_normalises_the_display_flag_of_a_field(): void
+    {
+        // EX-328 : champ marqué display par le dictionnaire, normalisé comme
+        // les autres booléens ServiceNow (chaîne, jamais booléen JSON natif).
+        Http::fake(function ($request) {
+            if (str_contains($request->url(), 'sys_dictionary')) {
+                return Http::response(['result' => [
+                    [
+                        'name' => 'core_company', 'element' => 'name', 'internal_type' => 'string',
+                        'reference' => '', 'max_length' => '80', 'mandatory' => 'false',
+                        'read_only' => 'false', 'display' => 'true', 'default_value' => '',
+                        'column_label' => 'Name',
+                    ],
+                    [
+                        'name' => 'core_company', 'element' => 'notes', 'internal_type' => 'string',
+                        'reference' => '', 'max_length' => '160', 'mandatory' => 'false',
+                        'read_only' => 'false', 'default_value' => '', 'column_label' => 'Notes',
+                    ],
+                ]]);
+            }
+
+            return Http::response(['result' => [['name' => 'core_company', 'super_class' => '']]]);
+        });
+
+        $fields = $this->reader()->fields('core_company');
+
+        $this->assertTrue($fields[0]['display']);
+        // Absence du champ display dans la réponse ServiceNow -> repli à false.
+        $this->assertFalse($fields[1]['display']);
+    }
+
+    public function test_a_child_table_dictionary_override_takes_precedence_over_the_inherited_definition(): void
+    {
+        // Une table enfant peut surcharger, pour un champ hérité, des
+        // attributs comme read_only via son propre enregistrement
+        // sys_dictionary : seule cette définition la plus spécifique doit
+        // être retenue, faute de quoi un champ rendu lecture seule par la
+        // surcharge resterait modifiable via la définition héritée.
+        Http::fake(function ($request) {
+            $url = $request->url();
+            $query = $request['sysparm_query'] ?? '';
+
+            if (str_contains($url, '/api/now/table/sys_db_object')) {
+                return match ($query) {
+                    'name=incident' => Http::response(['result' => [
+                        ['name' => 'incident', 'super_class' => ['value' => str_repeat('d', 32)]],
+                    ]]),
+                    'sys_id='.str_repeat('d', 32) => Http::response(['result' => [
+                        ['name' => 'task'],
+                    ]]),
+                    'name=task' => Http::response(['result' => [
+                        ['name' => 'task', 'super_class' => ''],
+                    ]]),
+                    default => Http::response(['result' => []]),
+                };
+            }
+
+            if (str_contains($url, '/api/now/table/sys_dictionary')) {
+                return Http::response(['result' => [
+                    [
+                        'name' => 'task', 'element' => 'state', 'internal_type' => 'string',
+                        'reference' => '', 'max_length' => '40', 'mandatory' => 'false',
+                        'read_only' => 'false', 'default_value' => '', 'column_label' => 'State',
+                    ],
+                    [
+                        'name' => 'incident', 'element' => 'state', 'internal_type' => 'string',
+                        'reference' => '', 'max_length' => '40', 'mandatory' => 'false',
+                        'read_only' => 'true', 'default_value' => '', 'column_label' => 'State',
+                    ],
+                ]]);
+            }
+
+            return Http::response(['result' => []]);
+        });
+
+        $fields = $this->reader()->fields('incident');
+
+        $this->assertCount(1, $fields);
+        $this->assertTrue($fields[0]['read_only']);
+    }
+
     public function test_it_reads_the_dictionary_only_once_for_the_same_question(): void
     {
         // EX-321 : mémoïsation, y compris pour un lecteur unique.
