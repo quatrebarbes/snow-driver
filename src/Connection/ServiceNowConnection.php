@@ -7,12 +7,15 @@ use Illuminate\Http\Client\ConnectionException as HttpConnectionException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
 use InvalidArgumentException;
+use RuntimeException;
 use Quatrebarbes\SnowDriver\Auth\Credentials;
 use Quatrebarbes\SnowDriver\Exceptions\ServiceNowConnectionException;
 use Quatrebarbes\SnowDriver\Exceptions\ServiceNowMalformedResponseException;
 use Quatrebarbes\SnowDriver\Exceptions\ServiceNowUnsupportedQueryException;
 use Quatrebarbes\SnowDriver\Http\TableApiClient;
 use Quatrebarbes\SnowDriver\Query\ServiceNowGrammar;
+use Quatrebarbes\SnowDriver\Schema\ColumnTypeMap;
+use Quatrebarbes\SnowDriver\Schema\DictionaryReader;
 use Quatrebarbes\SnowDriver\Schema\ServiceNowSchemaBuilder;
 
 /**
@@ -32,6 +35,8 @@ class ServiceNowConnection extends Connection
     private const STATS_API = '/api/now/stats/';
 
     private ?Credentials $credentials = null;
+
+    private ?DictionaryReader $dictionaryReader = null;
 
     public function __construct(string $database, string $tablePrefix, array $config)
     {
@@ -153,13 +158,86 @@ class ServiceNowConnection extends Connection
         ], fn ($value) => $value !== null);
 
         if ($limit !== null) {
-            return $this->tableApi()->get(self::TABLE_API.$table, $params + [
+            return $this->coerceRecords($table, $this->tableApi()->get(self::TABLE_API.$table, $params + [
                 'sysparm_limit' => $limit,
                 'sysparm_offset' => $offset,
-            ]);
+            ]));
         }
 
-        return $this->fetchAllPages($table, $params, $offset);
+        return $this->coerceRecords($table, $this->fetchAllPages($table, $params, $offset));
+    }
+
+    /**
+     * EX-132 : conversion des champs booléens, entiers et décimaux d'un lot
+     * d'enregistrements vers leur type natif PHP, selon le dictionnaire de la
+     * table interrogée — l'API Table ne renvoyant que des chaînes. N'est
+     * appliquée qu'ici (chemin du query builder), jamais à l'intérieur de
+     * fetchAllPages() : le lecteur de dictionnaire s'appuie lui-même sur
+     * fetchAllPages() pour interroger sys_dictionary/sys_db_object, ce qui
+     * bouclerait indéfiniment si cette étape s'y ajoutait.
+     *
+     * Best-effort : un dictionnaire inaccessible (droits insuffisants) ou une
+     * erreur réseau lors de cette seule interrogation ne doit jamais faire
+     * échouer une lecture de données qui n'en dépendait pas jusqu'ici — les
+     * enregistrements sont alors renvoyés sans conversion, plutôt que la
+     * lecture entière n'échoue sur un problème étranger à la donnée demandée.
+     *
+     * @param  array<int, array<string, mixed>>  $records
+     * @return array<int, array<string, mixed>>
+     */
+    private function coerceRecords(string $table, array $records): array
+    {
+        if ($records === []) {
+            return $records;
+        }
+
+        try {
+            $fields = $this->dictionaryReader()->fields($table);
+        } catch (RuntimeException) {
+            return $records;
+        }
+
+        $types = [];
+
+        foreach ($fields as $field) {
+            $types[$field['element']] = ColumnTypeMap::typeName($field['internal_type']);
+        }
+
+        if ($types === []) {
+            return $records;
+        }
+
+        foreach ($records as &$record) {
+            foreach ($record as $element => $value) {
+                $record[$element] = $this->coerceValue($types[$element] ?? null, $value);
+            }
+        }
+
+        return $records;
+    }
+
+    /**
+     * EX-132 : même convention que le cast Eloquent dédié aux booléens
+     * ServiceNow (Eloquent\Casts\ServiceNowBoolean) — une valeur nulle reste
+     * nulle, toute autre valeur est comparée littéralement à "true".
+     */
+    private function coerceValue(?string $type, mixed $value): mixed
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        return match ($type) {
+            'boolean' => strtolower((string) $value) === 'true',
+            'integer' => $value === '' ? null : (int) $value,
+            'decimal' => $value === '' ? null : (float) $value,
+            default => $value,
+        };
+    }
+
+    private function dictionaryReader(): DictionaryReader
+    {
+        return $this->dictionaryReader ??= new DictionaryReader($this);
     }
 
     /**
