@@ -111,6 +111,26 @@ class ServiceNowModelGenerationTest extends TestCase
         );
     }
 
+    public function test_a_calculated_field_is_excluded_from_fillable_even_when_not_marked_read_only(): void
+    {
+        // EX-330 : sys_user.name est calculé par l'instance (virtual=true)
+        // sans être marqué read_only par le dictionnaire ; il doit malgré
+        // tout être exclu de $fillable.
+        $this->fakeDictionary([
+            'sys_user' => [
+                $this->field('user_name', 'string'),
+                $this->field('name', 'string', virtual: true),
+            ],
+        ]);
+
+        (new ModelFileGenerator($this->connection()))->generate(['sys_user'], 'App\\Models');
+
+        $content = $this->generatedContent('SysUser');
+
+        $this->assertStringContainsString("'user_name'", $content);
+        $this->assertStringNotContainsString("'name'", $content);
+    }
+
     public function test_it_does_not_overwrite_an_existing_model_file(): void
     {
         // Limite SFD : préserve toute personnalisation manuelle.
@@ -268,7 +288,7 @@ class ServiceNowModelGenerationTest extends TestCase
     /**
      * @return array<string, mixed>
      */
-    private function field(string $element, string $internalType, string $reference = '', bool $readOnly = false, bool $mandatory = false, bool $display = false): array
+    private function field(string $element, string $internalType, string $reference = '', bool $readOnly = false, bool $mandatory = false, bool $display = false, bool $virtual = false): array
     {
         return [
             'element' => $element,
@@ -278,6 +298,7 @@ class ServiceNowModelGenerationTest extends TestCase
             'mandatory' => $mandatory ? 'true' : 'false',
             'read_only' => $readOnly ? 'true' : 'false',
             'display' => $display ? 'true' : 'false',
+            'virtual' => $virtual ? 'true' : 'false',
             'default_value' => '',
             'column_label' => ucfirst(str_replace('_', ' ', $element)),
         ];

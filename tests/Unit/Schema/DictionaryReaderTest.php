@@ -139,6 +139,31 @@ class DictionaryReaderTest extends TestCase
         $this->assertFalse($fields[1]['display']);
     }
 
+    public function test_it_normalises_the_virtual_flag_of_a_field(): void
+    {
+        // EX-330 : un champ calculé (virtual=true) n'est pas nécessairement
+        // marqué read_only par le dictionnaire (ex. sys_user.name).
+        Http::fake(function ($request) {
+            if (str_contains($request->url(), 'sys_dictionary')) {
+                return Http::response(['result' => [
+                    [
+                        'name' => 'sys_user', 'element' => 'name', 'internal_type' => 'string',
+                        'reference' => '', 'max_length' => '100', 'mandatory' => 'false',
+                        'read_only' => 'false', 'virtual' => 'true', 'default_value' => '',
+                        'column_label' => 'Name',
+                    ],
+                ]]);
+            }
+
+            return Http::response(['result' => [['name' => 'sys_user', 'super_class' => '']]]);
+        });
+
+        $fields = $this->reader()->fields('sys_user');
+
+        $this->assertFalse($fields[0]['read_only']);
+        $this->assertTrue($fields[0]['virtual']);
+    }
+
     public function test_a_child_table_dictionary_override_takes_precedence_over_the_inherited_definition(): void
     {
         // Une table enfant peut surcharger, pour un champ hérité, des

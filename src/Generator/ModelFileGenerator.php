@@ -214,6 +214,11 @@ class ModelFileGenerator
      * EX-325, EX-326 : champs modifiables par assignation de masse, limités
      * aux champs inscriptibles (non read_only) et hors champs techniques.
      *
+     * EX-330 : un champ virtual (ex. sys_user.name, calculé par un script
+     * plutôt que stocké dans une colonne propre) est exclu même s'il n'est
+     * pas marqué read_only par le dictionnaire : sans stockage propre, une
+     * valeur écrite n'aurait nulle part où être persistée.
+     *
      * EX-328, EX-329 : le champ display (s'il figure parmi les champs
      * modifiables) est placé en tête, suivi des champs mandatory, puis des
      * autres champs modifiables — dans chaque groupe, l'ordre d'EX-304 est
@@ -230,7 +235,7 @@ class ModelFileGenerator
     {
         $writable = array_values(array_filter(
             $fields,
-            fn (array $field) => ! $field['read_only'] && ! in_array($field['element'], self::TECHNICAL_FIELDS, true)
+            fn (array $field) => ! $field['read_only'] && ! $field['virtual'] && ! in_array($field['element'], self::TECHNICAL_FIELDS, true)
         ));
 
         $displayIndex = null;

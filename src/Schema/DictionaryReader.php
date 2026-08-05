@@ -92,7 +92,7 @@ class DictionaryReader
      * EX-304 : champs d'une table, ceux hérités de ses tables ancêtres
      * inclus, ordonnés de la table la plus générale à la table interrogée.
      *
-     * @return array<int, array{table: string, element: string, internal_type: string, reference_table: string|null, max_length: int|null, mandatory: bool, read_only: bool, display: bool, default: string|null, label: string|null}>
+     * @return array<int, array{table: string, element: string, internal_type: string, reference_table: string|null, max_length: int|null, mandatory: bool, read_only: bool, display: bool, virtual: bool, default: string|null, label: string|null}>
      */
     public function fields(string $table): array
     {
@@ -105,7 +105,7 @@ class DictionaryReader
 
             $records = $this->connection->fetchAllPages('sys_dictionary', [
                 'sysparm_query' => 'nameIN'.implode(',', $chain).'^elementISNOTEMPTY^active=true',
-                'sysparm_fields' => 'name,element,internal_type,reference,max_length,mandatory,read_only,display,default_value,column_label',
+                'sysparm_fields' => 'name,element,internal_type,reference,max_length,mandatory,read_only,display,virtual,default_value,column_label',
                 'sysparm_display_value' => 'all',
             ]);
 
@@ -262,7 +262,7 @@ class DictionaryReader
 
     /**
      * @param  array<string, mixed>  $record
-     * @return array{table: string, element: string, internal_type: string, reference_table: string|null, max_length: int|null, mandatory: bool, read_only: bool, display: bool, default: string|null, label: string|null}|null
+     * @return array{table: string, element: string, internal_type: string, reference_table: string|null, max_length: int|null, mandatory: bool, read_only: bool, display: bool, virtual: bool, default: string|null, label: string|null}|null
      */
     private function normalizeField(array $record): ?array
     {
@@ -286,6 +286,11 @@ class DictionaryReader
             // EX-328 : champ marqué display par le dictionnaire, utilisé pour
             // ordonner $fillable dans les modèles générés (Phase 9).
             'display' => $this->isTrue($record['display'] ?? null),
+            // EX-330 : champ virtual (ex. sys_user.name, calculé par un
+            // script de calcul plutôt que stocké dans une colonne propre),
+            // non marqué read_only par le dictionnaire mais sans aucun
+            // stockage où persister une valeur écrite.
+            'virtual' => $this->isTrue($record['virtual'] ?? null),
             'default' => $this->technicalValue($record['default_value'] ?? null),
             'label' => $this->displayValue($record['column_label'] ?? null),
         ];
