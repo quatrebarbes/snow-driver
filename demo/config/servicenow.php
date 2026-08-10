@@ -68,7 +68,7 @@ return [
     | de cache explicite.
     |
     | Une durée nulle désactive le cache applicatif ; les lectures restent
-    | alors mémoïsées le temps de la requête HTTP en cours.
+    | alors mémorisées le temps de la requête HTTP en cours.
     |
     */
 

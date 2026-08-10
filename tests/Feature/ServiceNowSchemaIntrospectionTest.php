@@ -272,13 +272,15 @@ class ServiceNowSchemaIntrospectionTest extends TestCase
                 ['name' => 'task'],
             ],
             'name=incident' => [
-                ['name' => 'incident', 'label' => 'Incident', 'super_class' => ['value' => self::TASK_SYS_ID, 'link' => '...']],
+                ['name' => 'incident', 'super_class' => ['value' => self::TASK_SYS_ID, 'link' => '...']],
             ],
+            'name=core_company' => [['name' => 'core_company', 'super_class' => '']],
             // Table racine : super_class vide, fin de la chaîne d'héritage.
-            'name=task' => [['name' => 'task', 'label' => 'Task', 'super_class' => '']],
-            'name=core_company' => [['name' => 'core_company', 'label' => 'Company', 'super_class' => '']],
-            'sys_id='.self::TASK_SYS_ID => [['name' => 'task']],
-            'sys_id='.self::COMPANY_SYS_ID => [['name' => 'core_company']],
+            // Cette réponse alimente directement le cache par nom de tableRecord()
+            // (DictionaryReader::resolveTableName()), sans nouvel appel par nom.
+            'sys_id='.self::TASK_SYS_ID => [['name' => 'task', 'super_class' => '']],
+            // EX-311 : résolue par lot (sys_idIN) depuis DictionaryReader::resolveReferenceTables().
+            'sys_idIN'.self::COMPANY_SYS_ID => [['sys_id' => self::COMPANY_SYS_ID, 'name' => 'core_company']],
             default => [],
         };
     }
