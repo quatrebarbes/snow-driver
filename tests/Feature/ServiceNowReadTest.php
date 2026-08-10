@@ -172,7 +172,7 @@ class ServiceNowReadTest extends TestCase
 
     public function test_a_null_boolean_field_stays_null_rather_than_becoming_false(): void
     {
-        // EX-132 : même convention que le cast Eloquent ServiceNowBoolean.
+        // EX-132 : même convention que l'accessor/mutator booléen généré dans les modèles.
         $this->fakeDictionary([
             ['element' => 'active', 'internal_type' => 'boolean'],
         ]);

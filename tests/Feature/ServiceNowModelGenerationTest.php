@@ -5,7 +5,6 @@ namespace Quatrebarbes\SnowDriver\Tests\Feature;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Quatrebarbes\SnowDriver\Connection\ServiceNowConnection;
-use Quatrebarbes\SnowDriver\Eloquent\Casts\ServiceNowBoolean;
 use Quatrebarbes\SnowDriver\Generator\ModelFileGenerator;
 use Quatrebarbes\SnowDriver\Tests\TestCase;
 
@@ -61,10 +60,12 @@ class ServiceNowModelGenerationTest extends TestCase
         // EX-325, EX-326 : champ inscriptible présent, champ en lecture seule exclu.
         $this->assertStringContainsString("'short_description'", $content);
         $this->assertStringNotContainsString("'number'", $content);
-        // EX-327 : conversion déclarée pour le champ booléen, via le cast
-        // dédié ServiceNowBoolean plutôt que le cast natif 'boolean'
-        // d'Eloquent (cf. ServiceNowBooleanTest pour la raison).
-        $this->assertStringContainsString("'active' => \\".ServiceNowBoolean::class.'::class', $content);
+        // EX-327 : conversion déclarée pour le champ booléen via le cast
+        // natif 'boolean' d'Eloquent, complété d'un accessor/mutator dédié
+        // (cf. BooleanAccessorTest pour la raison).
+        $this->assertStringContainsString("'active' => 'boolean',", $content);
+        $this->assertStringContainsString('use Illuminate\Database\Eloquent\Casts\Attribute;', $content);
+        $this->assertStringContainsString('protected function active(): Attribute', $content);
     }
 
     public function test_fillable_starts_with_the_display_field_then_mandatory_fields(): void

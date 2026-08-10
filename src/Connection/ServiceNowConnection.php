@@ -217,9 +217,10 @@ class ServiceNowConnection extends Connection
     }
 
     /**
-     * EX-132 : même convention que le cast Eloquent dédié aux booléens
-     * ServiceNow (Eloquent\Casts\ServiceNowBoolean) — une valeur nulle reste
-     * nulle, toute autre valeur est comparée littéralement à "true".
+     * EX-132 : même convention que l'accessor/mutator booléen généré dans
+     * les modèles (Generator\ModelFileGenerator::renderBooleanAccessors())
+     * — une valeur nulle reste nulle, toute autre valeur est comparée
+     * littéralement à "true".
      */
     private function coerceValue(?string $type, mixed $value): mixed
     {
