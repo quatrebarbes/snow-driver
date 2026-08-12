@@ -49,7 +49,7 @@ class ServiceNowSchemaIntrospectionTest extends TestCase
         $this->assertSame(['core_company', 'incident', 'task'], $tables);
 
         Http::assertSent(fn ($request) => str_contains($request->url(), '/api/now/table/sys_db_object')
-            && ($request['sysparm_fields'] ?? null) === 'name');
+            && ($request['sysparm_fields'] ?? null) === 'sys_id,name,super_class');
     }
 
     public function test_it_reports_an_existing_table(): void
@@ -243,7 +243,7 @@ class ServiceNowSchemaIntrospectionTest extends TestCase
             $query = $request['sysparm_query'] ?? '';
 
             if (str_contains($url, '/api/now/table/sys_db_object')) {
-                return Http::response(['result' => $this->tableRecords($query)]);
+                return Http::response(['result' => $query === 'ORDERBYname' ? $this->tableRecords() : []]);
             }
 
             if (str_contains($url, '/api/now/table/sys_dictionary')) {
@@ -261,28 +261,20 @@ class ServiceNowSchemaIntrospectionTest extends TestCase
     }
 
     /**
+     * Catalogue complet des tables de l'instance, rapatrié en un seul appel
+     * (DictionaryReader::tableCatalog()) : `incident` hérite de `task` via
+     * son sys_id, et le champ `company` du dictionnaire (EX-311) référence
+     * `core_company` via le sien.
+     *
      * @return array<int, array<string, mixed>>
      */
-    private function tableRecords(string $query): array
+    private function tableRecords(): array
     {
-        return match ($query) {
-            'ORDERBYname' => [
-                ['name' => 'core_company'],
-                ['name' => 'incident'],
-                ['name' => 'task'],
-            ],
-            'name=incident' => [
-                ['name' => 'incident', 'super_class' => ['value' => self::TASK_SYS_ID, 'link' => '...']],
-            ],
-            'name=core_company' => [['name' => 'core_company', 'super_class' => '']],
-            // Table racine : super_class vide, fin de la chaîne d'héritage.
-            // Cette réponse alimente directement le cache par nom de tableRecord()
-            // (DictionaryReader::resolveTableName()), sans nouvel appel par nom.
-            'sys_id='.self::TASK_SYS_ID => [['name' => 'task', 'super_class' => '']],
-            // EX-311 : résolue par lot (sys_idIN) depuis DictionaryReader::resolveReferenceTables().
-            'sys_idIN'.self::COMPANY_SYS_ID => [['sys_id' => self::COMPANY_SYS_ID, 'name' => 'core_company']],
-            default => [],
-        };
+        return [
+            ['sys_id' => self::COMPANY_SYS_ID, 'name' => 'core_company', 'super_class' => ''],
+            ['sys_id' => '44444444444444444444444444444444', 'name' => 'incident', 'super_class' => ['value' => self::TASK_SYS_ID, 'link' => '...']],
+            ['sys_id' => self::TASK_SYS_ID, 'name' => 'task', 'super_class' => ''],
+        ];
     }
 
     /**

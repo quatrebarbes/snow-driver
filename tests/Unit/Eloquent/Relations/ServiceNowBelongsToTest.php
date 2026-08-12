@@ -37,8 +37,6 @@ class ServiceNowBelongsToTest extends TestCase
     public function test_a_reference_field_resolves_the_related_model_in_the_nominal_case(): void
     {
         // EX-116 : cas nominal, la relation est résolue via l'API Table.
-        $this->fakeEmptyDictionary();
-
         Http::fake([
             '*/api/now/table/companies*' => Http::response(['result' => [
                 ['sys_id' => 'comp1', 'name' => 'Acme'],

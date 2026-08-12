@@ -5,7 +5,6 @@ namespace Quatrebarbes\SnowDriver\Tests\Feature;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Quatrebarbes\SnowDriver\Connection\ServiceNowConnection;
-use Quatrebarbes\SnowDriver\Eloquent\Casts\ServiceNowBoolean;
 use Quatrebarbes\SnowDriver\Generator\ModelFileGenerator;
 use Quatrebarbes\SnowDriver\Tests\TestCase;
 
@@ -42,7 +41,7 @@ class ServiceNowModelGenerationTest extends TestCase
 
     public function test_it_generates_a_missing_model_with_its_table_fillable_fields_and_casts(): void
     {
-        // EX-202, EX-203, EX-325, EX-326, EX-327
+        // EX-202, EX-203, EX-325, EX-326, EX-327, EX-331
         $this->fakeDictionary([
             'incident' => [
                 $this->field('short_description', 'string'),
@@ -59,12 +58,19 @@ class ServiceNowModelGenerationTest extends TestCase
         $this->assertStringContainsString('class Incident extends ServiceNowModel', $content);
         $this->assertStringContainsString("protected \$table = 'incident';", $content);
         // EX-325, EX-326 : champ inscriptible présent, champ en lecture seule exclu.
-        $this->assertStringContainsString("'short_description'", $content);
-        $this->assertStringNotContainsString("'number'", $content);
-        // EX-327 : conversion déclarée pour le champ booléen, via le cast
-        // dédié ServiceNowBoolean plutôt que le cast natif 'boolean'
-        // d'Eloquent (cf. ServiceNowBooleanTest pour la raison).
-        $this->assertStringContainsString("'active' => \\".ServiceNowBoolean::class.'::class', $content);
+        $this->assertMatchesRegularExpression('/\$fillable = \[[^\]]*\'short_description\'[^\]]*\]/', $content);
+        $this->assertDoesNotMatchRegularExpression('/\$fillable = \[[^\]]*\'number\'[^\]]*\]/', $content);
+        // EX-327 : conversion déclarée pour le champ booléen via le cast
+        // natif 'boolean' d'Eloquent, complété d'un accessor/mutator dédié
+        // (cf. BooleanAccessorTest pour la raison).
+        $this->assertStringContainsString("'active' => 'boolean',", $content);
+        $this->assertStringContainsString('use Illuminate\Database\Eloquent\Casts\Attribute;', $content);
+        $this->assertStringContainsString('protected function active(): Attribute', $content);
+        // EX-331 : conversion 'string' déclarée pour les champs texte, y
+        // compris un champ en lecture seule (une conversion documente le
+        // type lu, indépendamment du caractère modifiable du champ).
+        $this->assertStringContainsString("'short_description' => 'string',", $content);
+        $this->assertStringContainsString("'number' => 'string',", $content);
     }
 
     public function test_fillable_starts_with_the_display_field_then_mandatory_fields(): void
@@ -130,8 +136,8 @@ class ServiceNowModelGenerationTest extends TestCase
 
         $content = $this->generatedContent('SysUser');
 
-        $this->assertStringContainsString("'user_name'", $content);
-        $this->assertStringNotContainsString("'name'", $content);
+        $this->assertMatchesRegularExpression('/\$fillable = \[[^\]]*\'user_name\'[^\]]*\]/', $content);
+        $this->assertDoesNotMatchRegularExpression('/\$fillable = \[[^\]]*\'name\'[^\]]*\]/', $content);
     }
 
     public function test_it_does_not_overwrite_an_existing_model_file(): void
@@ -202,6 +208,10 @@ class ServiceNowModelGenerationTest extends TestCase
         $this->assertStringContainsString('use Illuminate\Database\Eloquent\Relations\BelongsTo;', $content);
         $this->assertStringContainsString('public function companyRecord(): BelongsTo', $content);
         $this->assertStringContainsString("\$this->belongsTo(\\App\\Models\\CoreCompany::class, 'company', 'sys_id')", $content);
+        // EX-331, limite : un champ reference retombe sur le type générique
+        // varchar (EX-307) mais sa valeur brute est un tableau {value, link},
+        // pas une chaîne ; il ne doit donc recevoir aucun cast 'string'.
+        $this->assertStringNotContainsString("'company' => 'string',", $content);
     }
 
     public function test_a_reference_field_is_ignored_when_its_target_table_has_no_resolvable_model(): void
@@ -317,10 +327,11 @@ class ServiceNowModelGenerationTest extends TestCase
             $query = $request['sysparm_query'] ?? '';
 
             if (str_contains($url, '/api/now/table/sys_db_object')) {
-                foreach (array_keys($tableFields) as $table) {
-                    if ($query === 'name='.$table) {
-                        return Http::response(['result' => [['name' => $table, 'super_class' => '']]]);
-                    }
+                if ($query === 'ORDERBYname') {
+                    return Http::response(['result' => array_map(
+                        fn (string $table) => ['name' => $table, 'super_class' => ''],
+                        array_keys($tableFields)
+                    )]);
                 }
 
                 return Http::response(['result' => []]);

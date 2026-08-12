@@ -3,6 +3,7 @@
 namespace Quatrebarbes\SnowDriver\Generator;
 
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Quatrebarbes\SnowDriver\Connection\ServiceNowConnection;
 use Quatrebarbes\SnowDriver\Schema\ColumnTypeMap;
 use Quatrebarbes\SnowDriver\Schema\DictionaryReader;
@@ -13,7 +14,7 @@ use Throwable;
  * modèle Eloquent pour chaque table ServiceNow configurée dont le fichier
  * n'existe pas encore, avec ses relations belongsTo (EX-206 à EX-208), ses
  * relations hasMany réciproques (EX-209 à EX-211), ses champs modifiables et
- * ses conversions (EX-325 à EX-327).
+ * ses conversions (EX-325 à EX-327, EX-331).
  */
 class ModelFileGenerator
 {
@@ -34,22 +35,31 @@ class ModelFileGenerator
     /**
      * EX-327 : types internes ServiceNow disposant d'un équivalent de
      * conversion Eloquent, sous la forme du fragment PHP à placer tel quel
-     * après le "=>" dans $casts (littéral entre quotes pour les types
-     * natifs, référence de classe pour un cast dédié).
+     * après le "=>" dans $casts.
      *
-     * Le type booléen utilise un cast dédié (ServiceNowBoolean) plutôt que
-     * le cast natif 'boolean' d'Eloquent : ServiceNow renvoie ces champs
-     * sous forme de chaîne ("true"/"false"), et `(bool) "false"` vaut
-     * toujours `true` en PHP, toute chaîne non vide étant vraie.
+     * Le type booléen utilise le cast natif 'boolean' d'Eloquent, complété
+     * d'un accessor/mutator dédié généré pour chaque champ concerné (cf.
+     * renderBooleanAccessors()) : ServiceNow renvoie ces champs sous forme
+     * de chaîne ("true"/"false"), et `(bool) "false"` vaut toujours `true`
+     * en PHP, toute chaîne non vide étant vraie — l'accessor/mutator prend
+     * le pas sur le cast natif pour la lecture et l'écriture réelles.
+     *
+     * EX-331 : chaîne courte (varchar) et texte long (text) n'appellent
+     * aucune transformation de valeur — la donnée ServiceNow est déjà une
+     * chaîne PHP — mais sont tout de même déclarées en 'string', par souci
+     * de lisibilité du type depuis le modèle plutôt que depuis le seul
+     * dictionnaire.
      *
      * @var array<string, string>
      */
     private const CASTS = [
-        'boolean' => '\Quatrebarbes\SnowDriver\Eloquent\Casts\ServiceNowBoolean::class',
+        'boolean' => "'boolean'",
         'integer' => "'integer'",
         'decimal' => "'decimal:2'",
         'date' => "'date'",
         'datetime' => "'datetime'",
+        'varchar' => "'string'",
+        'text' => "'string'",
     ];
 
     public function __construct(private readonly ServiceNowConnection $connection)
@@ -122,6 +132,7 @@ class ModelFileGenerator
         $belongsTo = $this->belongsToRelations($fields, $namespace, $generatedTables);
         $hasMany = $this->hasManyRelations($descriptor['table'], $configuredTables, $namespace, $dictionary);
         $relations = array_merge($belongsTo, $hasMany);
+        $booleanFields = $this->booleanFields($fields);
 
         $stub = file_get_contents(__DIR__.'/stubs/model.stub');
 
@@ -129,10 +140,10 @@ class ModelFileGenerator
             '{{ namespace }}' => $namespace,
             '{{ class }}' => $descriptor['class'],
             '{{ table }}' => $descriptor['table'],
-            '{{ uses }}' => $this->renderUses($relations),
+            '{{ uses }}' => $this->renderUses($relations, $booleanFields !== []),
             '{{ fillable }}' => $this->renderFillable($this->fillableFields($fields)),
             '{{ casts }}' => $this->renderCasts($this->castFields($fields)),
-            '{{ methods }}' => $this->renderMethods($relations),
+            '{{ methods }}' => $this->renderMethods($relations).$this->renderBooleanAccessors($booleanFields),
         ]);
     }
 
@@ -270,10 +281,16 @@ class ModelFileGenerator
     }
 
     /**
-     * EX-327 : conversions Eloquent pour les champs dont le type ServiceNow
-     * admet un équivalent (booléen, entier, décimal, horodatage), hors
-     * champs techniques (déjà gérés nativement par le mapping CREATED_AT /
-     * UPDATED_AT pour sys_created_on / sys_updated_on).
+     * EX-327, EX-331 : conversions Eloquent pour les champs dont le type
+     * ServiceNow admet un équivalent (booléen, entier, décimal, horodatage)
+     * ou, à défaut, une simple déclaration 'string' pour les champs texte,
+     * hors champs techniques (déjà gérés nativement par le mapping
+     * CREATED_AT / UPDATED_AT pour sys_created_on / sys_updated_on).
+     *
+     * Limite EX-331 : un champ reference retombe sur le même type générique
+     * varchar (EX-307) faute de correspondance dédiée, mais sa valeur brute
+     * est un tableau ({value, link}) et non une chaîne (cf. DictionaryReader) ;
+     * il est donc exclu du cast 'string', qui la corromprait.
      *
      * @param  array<int, array<string, mixed>>  $fields
      * @return array<string, string>
@@ -284,6 +301,10 @@ class ModelFileGenerator
 
         foreach ($fields as $field) {
             if (in_array($field['element'], self::TECHNICAL_FIELDS, true)) {
+                continue;
+            }
+
+            if (strtolower($field['internal_type']) === 'reference') {
                 continue;
             }
 
@@ -298,15 +319,31 @@ class ModelFileGenerator
     }
 
     /**
+     * EX-327 : champs booléens pour lesquels un accessor/mutator dédié est
+     * généré (cf. renderBooleanAccessors()), en complément du cast natif
+     * 'boolean' déclaré par castFields() dans $casts.
+     *
+     * @param  array<int, array<string, mixed>>  $fields
+     * @return array<int, string>
+     */
+    private function booleanFields(array $fields): array
+    {
+        return array_values(array_map(
+            fn (array $field) => $field['element'],
+            array_filter(
+                $fields,
+                fn (array $field) => ! in_array($field['element'], self::TECHNICAL_FIELDS, true)
+                    && ColumnTypeMap::typeName($field['internal_type']) === 'boolean'
+            )
+        ));
+    }
+
+    /**
      * @param  array<int, array{method: string, type: string, target: string, field: string}>  $relations
      */
-    private function renderUses(array $relations): string
+    private function renderUses(array $relations, bool $hasBooleanAccessors): string
     {
         $types = array_unique(array_column($relations, 'type'));
-
-        if ($types === []) {
-            return '';
-        }
 
         $uses = [];
 
@@ -316,6 +353,14 @@ class ModelFileGenerator
 
         if (in_array('hasMany', $types, true)) {
             $uses[] = 'use Illuminate\Database\Eloquent\Relations\HasMany;';
+        }
+
+        if ($hasBooleanAccessors) {
+            $uses[] = 'use Illuminate\Database\Eloquent\Casts\Attribute;';
+        }
+
+        if ($uses === []) {
+            return '';
         }
 
         return implode("\n", $uses)."\n";
@@ -370,6 +415,36 @@ class ModelFileGenerator
                 "        return \$this->{$relation['type']}(\\{$relation['target']}::class, '{$relation['field']}', 'sys_id');\n".
                 "    }\n";
         }, $relations);
+
+        return "\n".implode('', $blocks);
+    }
+
+    /**
+     * EX-327 : accessor/mutator dédié à chaque champ booléen, qui prend le
+     * pas sur le cast natif 'boolean' déclaré dans $casts pour la lecture
+     * et l'écriture réelles. Chaque méthode délègue à
+     * ServiceNowModel::serviceNowBooleanAttribute() plutôt que de répéter
+     * la conversion (chaîne "true"/"false" comparée explicitement, plutôt
+     * que `(bool) $value`, toujours vrai pour "false") : la logique n'est
+     * ainsi écrite qu'une fois, quel que soit le nombre de champs booléens
+     * du modèle généré.
+     *
+     * @param  array<int, string>  $fields
+     */
+    private function renderBooleanAccessors(array $fields): string
+    {
+        if ($fields === []) {
+            return '';
+        }
+
+        $blocks = array_map(function (string $field): string {
+            $method = Str::camel($field);
+
+            return "\n    protected function {$method}(): Attribute\n".
+                "    {\n".
+                "        return static::serviceNowBooleanAttribute();\n".
+                "    }\n";
+        }, $fields);
 
         return "\n".implode('', $blocks);
     }

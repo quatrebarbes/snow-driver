@@ -70,12 +70,10 @@ class GenericHostToolContractTest extends TestCase
             }
 
             if (str_contains($url, '/api/now/table/sys_db_object')) {
-                return Http::response(['result' => match ($query) {
-                    'ORDERBYname' => [['name' => 'core_company'], ['name' => 'incident']],
-                    'name=incident' => [['name' => 'incident', 'super_class' => '']],
-                    'name=core_company' => [['name' => 'core_company', 'super_class' => '']],
-                    default => [],
-                }]);
+                return Http::response(['result' => $query === 'ORDERBYname' ? [
+                    ['name' => 'core_company', 'super_class' => ''],
+                    ['name' => 'incident', 'super_class' => ''],
+                ] : []]);
             }
 
             if (str_contains($url, '/api/now/table/sys_dictionary')) {

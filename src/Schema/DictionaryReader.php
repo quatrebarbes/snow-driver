@@ -16,6 +16,16 @@ use Quatrebarbes\SnowDriver\Connection\ServiceNowConnection;
  * n'a lieu qu'à la première interrogation effective — rien n'est interrogé au
  * démarrage de l'application.
  *
+ * Catalogue unique (cf. `tableCatalog()`) : name, sys_id et super_class de
+ * toutes les tables de l'instance sont rapatriés en un seul appel à
+ * sys_db_object, mémorisé et mis en cache comme le reste du dictionnaire.
+ * tableNames(), tableExists(), inheritanceChain() et la résolution des champs
+ * `reference` s'y résolvent ensuite sans aucun appel réseau supplémentaire —
+ * la remontée d'une chaîne d'héritage à plusieurs niveaux ou la résolution de
+ * plusieurs champs de référence ne coûtaient auparavant qu'un aller-retour
+ * par niveau ou par lot, chacun mesuré à plus d'une seconde contre une
+ * instance réelle ; ce coût disparaît une fois le catalogue chargé.
+ *
  * Normalisation défensive des valeurs (cf. `technicalValue()`) : un champ
  * ServiceNow de type reference est renvoyé par l'API Table sous une forme qui
  * varie selon les paramètres d'appel et les versions d'instance (chaîne brute,
@@ -23,13 +33,11 @@ use Quatrebarbes\SnowDriver\Connection\ServiceNowConnection;
  * Les deux champs dont ce module a besoin — `internal_type` (vers
  * sys_glide_object) et `reference` (vers sys_db_object) — sont donc traités
  * indifféremment de la forme reçue, avec résolution du sys_id vers le nom
- * technique lorsque c'est un sys_id qui est renvoyé.
- *
- * Limite : le format exact renvoyé par ces deux champs n'a pas pu être
- * confirmé contre une instance ServiceNow réelle (aucune instance joignable
- * depuis l'environnement de développement) — d'où cette normalisation
- * tolérante plutôt qu'un format supposé, et la couverture des trois formes en
- * test unitaire.
+ * technique lorsque c'est un sys_id qui est renvoyé. Constaté contre une
+ * instance réelle : ces deux champs renvoient en pratique directement le nom
+ * technique (jamais un sys_id) dès que `super_class` n'est pas concerné — le
+ * cas sys_id reste néanmoins couvert, un champ de référence ServiceNow restant
+ * par définition capable de le faire.
  */
 class DictionaryReader
 {
@@ -59,33 +67,24 @@ class DictionaryReader
      *
      * EX-322 : mise en cache comme le schéma d'une table — une instance
      * ServiceNow compte plusieurs milliers de tables, dont le rapatriement
-     * enchaîne plusieurs pages (EX-122).
+     * enchaîne plusieurs pages (EX-122). Dérivé de tableCatalog(), qui porte
+     * seul la mise en cache : aucun appel réseau propre à cette méthode.
      *
      * @return array<int, string>
      */
     public function tableNames(): array
     {
-        return $this->remember('tables', function (): array {
-            $records = $this->connection->fetchAllPages('sys_db_object', [
-                'sysparm_fields' => 'name',
-                'sysparm_query' => 'ORDERBYname',
-            ]);
-
-            return array_values(array_filter(array_map(
-                fn (array $record) => $this->technicalValue($record['name'] ?? null),
-                $records
-            )));
-        });
+        return array_column($this->tableCatalog(), 'name');
     }
 
     /**
-     * EX-303, EX-305 : existence d'une table, par interrogation ciblée du
-     * dictionnaire plutôt que par rapatriement de la liste complète des
-     * tables, et sans lire aucun enregistrement de la table concernée.
+     * EX-303, EX-305 : existence d'une table, sans lire aucun enregistrement
+     * de la table concernée — une recherche dans tableCatalog(), déjà chargé
+     * en mémoire, jamais un aller-retour réseau dédié.
      */
     public function tableExists(string $table): bool
     {
-        return $this->remember('exists:'.$table, fn (): bool => $this->tableRecord($table) !== null);
+        return $this->tableRecord($table) !== null;
     }
 
     /**
@@ -108,8 +107,6 @@ class DictionaryReader
                 'sysparm_fields' => 'name,element,internal_type,reference,max_length,mandatory,read_only,display,virtual,default_value,column_label',
                 'sysparm_display_value' => 'all',
             ]);
-
-            $this->resolveReferenceTables($records);
 
             $fields = array_values(array_filter(array_map(
                 fn (array $record) => $this->normalizeField($record),
@@ -155,9 +152,9 @@ class DictionaryReader
      * EX-304 : chaîne d'héritage d'une table, de la plus générale à la table
      * interrogée (ex. ['task', 'incident']). Vide si la table est inconnue.
      *
-     * Une requête par niveau d'héritage (deux à quatre en pratique) plutôt
-     * qu'un rapatriement complet de sys_db_object, qui compte plusieurs
-     * milliers d'enregistrements sur une instance ServiceNow courante.
+     * Résolue entièrement en mémoire depuis tableCatalog() : plus aucun appel
+     * réseau par niveau d'héritage, quelle que soit la profondeur de la
+     * chaîne.
      *
      * @return array<int, string>
      */
@@ -171,7 +168,7 @@ class DictionaryReader
             }
 
             $chain = [$table];
-            $parent = $this->technicalValue($record['super_class'] ?? null);
+            $parent = $record['super_class'];
 
             while ($parent !== null) {
                 $parentName = $this->resolveTableName($parent);
@@ -189,7 +186,7 @@ class DictionaryReader
                 $chain[] = $parentName;
 
                 $record = $this->tableRecord($parentName);
-                $parent = $record !== null ? $this->technicalValue($record['super_class'] ?? null) : null;
+                $parent = $record !== null ? $record['super_class'] : null;
             }
 
             return array_reverse($chain);
@@ -197,111 +194,18 @@ class DictionaryReader
     }
 
     /**
-     * Mémorisé (contrairement à un appel direct à l'API) : tableExists() et
-     * inheritanceChain() interrogent souvent la même table dans une même
-     * requête HTTP entrante, et la remontée de plusieurs chaînes d'héritage
-     * partage fréquemment des tables ancêtres (ex. `task`).
-     *
-     * @return array<string, mixed>|null
+     * @return array{name: string, super_class: string|null}|null
      */
     private function tableRecord(string $table): ?array
     {
-        return $this->remember('table-record:'.$table, function () use ($table): ?array {
-            $records = $this->connection->tableApi()->get('/api/now/table/sys_db_object', [
-                'sysparm_query' => 'name='.$table,
-                'sysparm_fields' => 'name,super_class',
-                'sysparm_limit' => 1,
-            ]);
-
-            return $records[0] ?? null;
-        });
-    }
-
-    /**
-     * EX-311 : résout en un seul appel les sys_id de table portés par les
-     * champs `reference` d'un lot d'enregistrements sys_dictionary, plutôt
-     * qu'un appel par champ — une table dotée de plusieurs champs de
-     * référence ne déclenche ainsi qu'un aller-retour vers sys_db_object au
-     * lieu d'un par champ. Alimente le même cache (mémorisation et cache
-     * applicatif) que resolveTableName(), qui reste le point d'entrée pour
-     * toute résolution isolée (ex. chaîne d'héritage).
-     *
-     * @param  array<int, array<string, mixed>>  $records
-     */
-    private function resolveReferenceTables(array $records): void
-    {
-        $sysIds = [];
-
-        foreach ($records as $record) {
-            $technical = $this->technicalValue($record['reference'] ?? null);
-
-            if ($technical !== null && preg_match(self::SYS_ID, $technical) === 1) {
-                $sysIds[$technical] = true;
-            }
-        }
-
-        $sysIds = array_values(array_filter(
-            array_keys($sysIds),
-            fn (string $sysId) => ! array_key_exists('table-name:'.$sysId, $this->memo)
-        ));
-
-        if ($sysIds === []) {
-            return;
-        }
-
-        $ttl = (int) config('servicenow.schema.cache_ttl', 0);
-        $cachePrefix = 'snow-driver:schema:'.$this->connection->connectionName().':table-name:';
-
-        if ($ttl > 0) {
-            foreach (Cache::many(array_map(fn (string $sysId) => $cachePrefix.$sysId, $sysIds)) as $cacheKey => $cached) {
-                if ($cached !== null) {
-                    $this->memo['table-name:'.substr($cacheKey, strlen($cachePrefix))] = $cached;
-                }
-            }
-
-            $sysIds = array_values(array_filter(
-                $sysIds,
-                fn (string $sysId) => ! array_key_exists('table-name:'.$sysId, $this->memo)
-            ));
-        }
-
-        if ($sysIds === []) {
-            return;
-        }
-
-        $records = $this->connection->tableApi()->get('/api/now/table/sys_db_object', [
-            'sysparm_query' => 'sys_idIN'.implode(',', $sysIds),
-            'sysparm_fields' => 'sys_id,name',
-            'sysparm_limit' => count($sysIds),
-        ]);
-
-        $resolved = [];
-
-        foreach ($records as $record) {
-            $sysId = $this->technicalValue($record['sys_id'] ?? null);
-            $name = $this->technicalValue($record['name'] ?? null);
-
-            if ($sysId !== null) {
-                $resolved[$sysId] = $name;
-            }
-        }
-
-        foreach ($sysIds as $sysId) {
-            $name = $resolved[$sysId] ?? null;
-            $this->memo['table-name:'.$sysId] = $name;
-
-            if ($ttl > 0) {
-                Cache::put($cachePrefix.$sysId, $name, $ttl);
-            }
-        }
+        return $this->tableCatalogByName()[$table] ?? null;
     }
 
     /**
      * Nom technique d'une table à partir de la valeur d'un champ la
-     * référençant : soit la valeur est déjà ce nom, soit c'est un sys_id
-     * d'enregistrement sys_db_object à résoudre. Utilisé pour toute
-     * résolution isolée (ex. chaîne d'héritage) ; resolveReferenceTables()
-     * couvre le cas d'un lot de champs de référence en un seul appel.
+     * référençant (`super_class` ou `reference`) : soit la valeur est déjà ce
+     * nom, soit c'est un sys_id d'enregistrement sys_db_object, résolu depuis
+     * tableCatalog() sans aucun appel réseau.
      */
     private function resolveTableName(string $value): ?string
     {
@@ -309,26 +213,88 @@ class DictionaryReader
             return $value;
         }
 
-        return $this->remember('table-name:'.$value, function () use ($value): ?string {
-            $records = $this->connection->tableApi()->get('/api/now/table/sys_db_object', [
-                'sysparm_query' => 'sys_id='.$value,
-                'sysparm_fields' => 'name,super_class',
-                'sysparm_limit' => 1,
+        return $this->tableCatalogBySysId()[$value] ?? null;
+    }
+
+    /**
+     * EX-302, EX-303, EX-311 : name, sys_id et super_class de toutes les
+     * tables de l'instance, rapatriés en un seul appel et mis en cache comme
+     * le reste du dictionnaire (EX-321, EX-322). Seule source de tableNames(),
+     * tableRecord() et resolveTableName() : la liste des tables, l'existence
+     * ou la chaîne d'héritage d'une table quelconque, et la résolution de tout
+     * champ `reference` s'y résolvent ensuite sans appel réseau
+     * supplémentaire, quel que soit le nombre de tables ou de champs à
+     * résoudre.
+     *
+     * @return array<int, array{sys_id: string|null, name: string, super_class: string|null}>
+     */
+    private function tableCatalog(): array
+    {
+        return $this->remember('table-catalog', function (): array {
+            $records = $this->connection->fetchAllPages('sys_db_object', [
+                'sysparm_fields' => 'sys_id,name,super_class',
+                'sysparm_query' => 'ORDERBYname',
             ]);
 
-            $record = $records[0] ?? null;
-            $name = $this->technicalValue($record['name'] ?? null);
+            return array_values(array_filter(array_map(function (array $record): ?array {
+                $name = $this->technicalValue($record['name'] ?? null);
 
-            // Précharge le cache de tableRecord() avec ce même enregistrement :
-            // la remontée de chaîne d'héritage qui vient de résoudre ce sys_id
-            // a besoin du super_class de cette table à l'étape suivante, sans
-            // refaire un appel identique par nom juste après.
-            if ($name !== null && $record !== null) {
-                $this->memo['table-record:'.$name] = $record;
+                if ($name === null) {
+                    return null;
+                }
+
+                return [
+                    'sys_id' => $this->technicalValue($record['sys_id'] ?? null),
+                    'name' => $name,
+                    'super_class' => $this->technicalValue($record['super_class'] ?? null),
+                ];
+            }, $records)));
+        });
+    }
+
+    /**
+     * Index de tableCatalog() par nom, calculé en mémoire à partir de son
+     * seul résultat déjà mis en cache : pas de clé de cache applicative
+     * propre, qui ne ferait que dupliquer les mêmes données.
+     *
+     * @return array<string, array{name: string, super_class: string|null}>
+     */
+    private function tableCatalogByName(): array
+    {
+        if (! array_key_exists('table-catalog-by-name', $this->memo)) {
+            $byName = [];
+
+            foreach ($this->tableCatalog() as $entry) {
+                $byName[$entry['name']] = ['name' => $entry['name'], 'super_class' => $entry['super_class']];
             }
 
-            return $name;
-        });
+            $this->memo['table-catalog-by-name'] = $byName;
+        }
+
+        return $this->memo['table-catalog-by-name'];
+    }
+
+    /**
+     * Index de tableCatalog() par sys_id, même principe que
+     * tableCatalogByName().
+     *
+     * @return array<string, string>
+     */
+    private function tableCatalogBySysId(): array
+    {
+        if (! array_key_exists('table-catalog-by-sys-id', $this->memo)) {
+            $bySysId = [];
+
+            foreach ($this->tableCatalog() as $entry) {
+                if ($entry['sys_id'] !== null) {
+                    $bySysId[$entry['sys_id']] = $entry['name'];
+                }
+            }
+
+            $this->memo['table-catalog-by-sys-id'] = $bySysId;
+        }
+
+        return $this->memo['table-catalog-by-sys-id'];
     }
 
     /**

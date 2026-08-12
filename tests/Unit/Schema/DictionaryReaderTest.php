@@ -8,7 +8,7 @@ use Quatrebarbes\SnowDriver\Schema\DictionaryReader;
 use Quatrebarbes\SnowDriver\Tests\TestCase;
 
 /**
- * EX-302, EX-304, EX-321 : lecture du dictionnaire de l'instance
+ * EX-302, EX-304, EX-311, EX-321 : lecture du dictionnaire de l'instance
  * (sys_db_object, sys_dictionary), remontée de la chaîne d'héritage et
  * normalisation des valeurs renvoyées par l'API Table.
  */
@@ -29,9 +29,9 @@ class DictionaryReaderTest extends TestCase
     {
         // EX-304 : de la table la plus générale à la table interrogée.
         $this->fakeTables([
-            'name=sc_request' => [['name' => 'sc_request', 'super_class' => ['value' => str_repeat('a', 32)]]],
-            'sys_id='.str_repeat('a', 32) => [['name' => 'task', 'super_class' => ['value' => str_repeat('b', 32)]]],
-            'sys_id='.str_repeat('b', 32) => [['name' => 'sys_metadata', 'super_class' => '']],
+            ['sys_id' => str_repeat('s', 32), 'name' => 'sc_request', 'super_class' => ['value' => str_repeat('a', 32)]],
+            ['sys_id' => str_repeat('a', 32), 'name' => 'task', 'super_class' => ['value' => str_repeat('b', 32)]],
+            ['sys_id' => str_repeat('b', 32), 'name' => 'sys_metadata', 'super_class' => ''],
         ]);
 
         $this->assertSame(
@@ -44,7 +44,7 @@ class DictionaryReaderTest extends TestCase
     {
         // EX-304
         $this->fakeTables([
-            'name=core_company' => [['name' => 'core_company', 'super_class' => '']],
+            ['sys_id' => str_repeat('r', 32), 'name' => 'core_company', 'super_class' => ''],
         ]);
 
         $this->assertSame(['core_company'], $this->reader()->inheritanceChain('core_company'));
@@ -63,8 +63,7 @@ class DictionaryReaderTest extends TestCase
     {
         // Garde-fou : un dictionnaire incohérent ne doit pas boucler à l'infini.
         $this->fakeTables([
-            'name=boucle' => [['name' => 'boucle', 'super_class' => ['value' => str_repeat('c', 32)]]],
-            'sys_id='.str_repeat('c', 32) => [['name' => 'boucle']],
+            ['sys_id' => str_repeat('c', 32), 'name' => 'boucle', 'super_class' => ['value' => str_repeat('c', 32)]],
         ]);
 
         $this->assertSame(['boucle'], $this->reader()->inheritanceChain('boucle'));
@@ -84,19 +83,16 @@ class DictionaryReaderTest extends TestCase
     {
         // Un booléen ServiceNow est renvoyé sous forme de chaîne par l'API
         // Table, jamais de booléen JSON natif.
-        Http::fake(function ($request) {
-            if (str_contains($request->url(), 'sys_dictionary')) {
-                return Http::response(['result' => [
-                    [
-                        'name' => 'core_company', 'element' => 'name', 'internal_type' => 'string',
-                        'reference' => '', 'max_length' => '80', 'mandatory' => 'true',
-                        'read_only' => '1', 'default_value' => '', 'column_label' => 'Name',
-                    ],
-                ]]);
-            }
-
-            return Http::response(['result' => [['name' => 'core_company', 'super_class' => '']]]);
-        });
+        $this->fakeTables(
+            [['sys_id' => str_repeat('x', 32), 'name' => 'core_company', 'super_class' => '']],
+            [
+                [
+                    'name' => 'core_company', 'element' => 'name', 'internal_type' => 'string',
+                    'reference' => '', 'max_length' => '80', 'mandatory' => 'true',
+                    'read_only' => '1', 'default_value' => '', 'column_label' => 'Name',
+                ],
+            ]
+        );
 
         $fields = $this->reader()->fields('core_company');
 
@@ -110,25 +106,22 @@ class DictionaryReaderTest extends TestCase
     {
         // EX-328 : champ marqué display par le dictionnaire, normalisé comme
         // les autres booléens ServiceNow (chaîne, jamais booléen JSON natif).
-        Http::fake(function ($request) {
-            if (str_contains($request->url(), 'sys_dictionary')) {
-                return Http::response(['result' => [
-                    [
-                        'name' => 'core_company', 'element' => 'name', 'internal_type' => 'string',
-                        'reference' => '', 'max_length' => '80', 'mandatory' => 'false',
-                        'read_only' => 'false', 'display' => 'true', 'default_value' => '',
-                        'column_label' => 'Name',
-                    ],
-                    [
-                        'name' => 'core_company', 'element' => 'notes', 'internal_type' => 'string',
-                        'reference' => '', 'max_length' => '160', 'mandatory' => 'false',
-                        'read_only' => 'false', 'default_value' => '', 'column_label' => 'Notes',
-                    ],
-                ]]);
-            }
-
-            return Http::response(['result' => [['name' => 'core_company', 'super_class' => '']]]);
-        });
+        $this->fakeTables(
+            [['sys_id' => str_repeat('x', 32), 'name' => 'core_company', 'super_class' => '']],
+            [
+                [
+                    'name' => 'core_company', 'element' => 'name', 'internal_type' => 'string',
+                    'reference' => '', 'max_length' => '80', 'mandatory' => 'false',
+                    'read_only' => 'false', 'display' => 'true', 'default_value' => '',
+                    'column_label' => 'Name',
+                ],
+                [
+                    'name' => 'core_company', 'element' => 'notes', 'internal_type' => 'string',
+                    'reference' => '', 'max_length' => '160', 'mandatory' => 'false',
+                    'read_only' => 'false', 'default_value' => '', 'column_label' => 'Notes',
+                ],
+            ]
+        );
 
         $fields = $this->reader()->fields('core_company');
 
@@ -141,20 +134,17 @@ class DictionaryReaderTest extends TestCase
     {
         // EX-330 : un champ calculé (virtual=true) n'est pas nécessairement
         // marqué read_only par le dictionnaire (ex. sys_user.name).
-        Http::fake(function ($request) {
-            if (str_contains($request->url(), 'sys_dictionary')) {
-                return Http::response(['result' => [
-                    [
-                        'name' => 'sys_user', 'element' => 'name', 'internal_type' => 'string',
-                        'reference' => '', 'max_length' => '100', 'mandatory' => 'false',
-                        'read_only' => 'false', 'virtual' => 'true', 'default_value' => '',
-                        'column_label' => 'Name',
-                    ],
-                ]]);
-            }
-
-            return Http::response(['result' => [['name' => 'sys_user', 'super_class' => '']]]);
-        });
+        $this->fakeTables(
+            [['sys_id' => str_repeat('x', 32), 'name' => 'sys_user', 'super_class' => '']],
+            [
+                [
+                    'name' => 'sys_user', 'element' => 'name', 'internal_type' => 'string',
+                    'reference' => '', 'max_length' => '100', 'mandatory' => 'false',
+                    'read_only' => 'false', 'virtual' => 'true', 'default_value' => '',
+                    'column_label' => 'Name',
+                ],
+            ]
+        );
 
         $fields = $this->reader()->fields('sys_user');
 
@@ -162,56 +152,43 @@ class DictionaryReaderTest extends TestCase
         $this->assertTrue($fields[0]['virtual']);
     }
 
-    public function test_it_resolves_several_reference_fields_in_a_single_call(): void
+    public function test_it_resolves_reference_fields_without_any_extra_call(): void
     {
-        // EX-311 : plusieurs champs de référence d'une même table ne
-        // déclenchent qu'un seul aller-retour vers sys_db_object, quel que
-        // soit leur nombre, au lieu d'un appel par champ à résoudre.
+        // EX-311 : la table référencée par un champ reference est lue depuis
+        // le catalogue sys_db_object déjà chargé pour la chaîne d'héritage —
+        // aucun appel supplémentaire, quel que soit le nombre de champs de
+        // référence à résoudre.
         $companySysId = str_repeat('e', 32);
         $userSysId = str_repeat('f', 32);
 
-        Http::fake(function ($request) use ($companySysId, $userSysId) {
-            $url = $request->url();
-            $query = $request['sysparm_query'] ?? '';
-
-            if (str_contains($url, '/api/now/table/sys_dictionary')) {
-                return Http::response(['result' => [
-                    [
-                        'name' => 'incident', 'element' => 'company', 'internal_type' => 'reference',
-                        'reference' => ['value' => $companySysId], 'max_length' => '32',
-                        'mandatory' => 'false', 'read_only' => 'false', 'default_value' => '',
-                        'column_label' => 'Company',
-                    ],
-                    [
-                        'name' => 'incident', 'element' => 'assigned_to', 'internal_type' => 'reference',
-                        'reference' => ['value' => $userSysId], 'max_length' => '32',
-                        'mandatory' => 'false', 'read_only' => 'false', 'default_value' => '',
-                        'column_label' => 'Assigned to',
-                    ],
-                ]]);
-            }
-
-            if (str_contains($url, '/api/now/table/sys_db_object') && $query === 'name=incident') {
-                return Http::response(['result' => [['name' => 'incident', 'super_class' => '']]]);
-            }
-
-            if (str_contains($url, '/api/now/table/sys_db_object') && $query === 'sys_idIN'.$companySysId.','.$userSysId) {
-                return Http::response(['result' => [
-                    ['sys_id' => $companySysId, 'name' => 'core_company'],
-                    ['sys_id' => $userSysId, 'name' => 'sys_user'],
-                ]]);
-            }
-
-            return Http::response(['result' => []]);
-        });
+        $this->fakeTables(
+            [
+                ['sys_id' => str_repeat('i', 32), 'name' => 'incident', 'super_class' => ''],
+                ['sys_id' => $companySysId, 'name' => 'core_company', 'super_class' => ''],
+                ['sys_id' => $userSysId, 'name' => 'sys_user', 'super_class' => ''],
+            ],
+            [
+                [
+                    'name' => 'incident', 'element' => 'company', 'internal_type' => 'reference',
+                    'reference' => ['value' => $companySysId], 'max_length' => '32',
+                    'mandatory' => 'false', 'read_only' => 'false', 'default_value' => '',
+                    'column_label' => 'Company',
+                ],
+                [
+                    'name' => 'incident', 'element' => 'assigned_to', 'internal_type' => 'reference',
+                    'reference' => ['value' => $userSysId], 'max_length' => '32',
+                    'mandatory' => 'false', 'read_only' => 'false', 'default_value' => '',
+                    'column_label' => 'Assigned to',
+                ],
+            ]
+        );
 
         $fields = $this->reader()->fields('incident');
 
         $this->assertSame('core_company', $fields[0]['reference_table']);
         $this->assertSame('sys_user', $fields[1]['reference_table']);
 
-        $this->assertCount(1, Http::recorded(fn ($request) => str_contains($request->url(), '/api/now/table/sys_db_object')
-            && str_starts_with($request['sysparm_query'] ?? '', 'sys_idIN')));
+        $this->assertCount(1, Http::recorded(fn ($request) => str_contains($request->url(), '/api/now/table/sys_db_object')));
     }
 
     public function test_a_child_table_dictionary_override_takes_precedence_over_the_inherited_definition(): void
@@ -221,39 +198,24 @@ class DictionaryReaderTest extends TestCase
         // sys_dictionary : seule cette définition la plus spécifique doit
         // être retenue, faute de quoi un champ rendu lecture seule par la
         // surcharge resterait modifiable via la définition héritée.
-        Http::fake(function ($request) {
-            $url = $request->url();
-            $query = $request['sysparm_query'] ?? '';
-
-            if (str_contains($url, '/api/now/table/sys_db_object')) {
-                return match ($query) {
-                    'name=incident' => Http::response(['result' => [
-                        ['name' => 'incident', 'super_class' => ['value' => str_repeat('d', 32)]],
-                    ]]),
-                    'sys_id='.str_repeat('d', 32) => Http::response(['result' => [
-                        ['name' => 'task', 'super_class' => ''],
-                    ]]),
-                    default => Http::response(['result' => []]),
-                };
-            }
-
-            if (str_contains($url, '/api/now/table/sys_dictionary')) {
-                return Http::response(['result' => [
-                    [
-                        'name' => 'task', 'element' => 'state', 'internal_type' => 'string',
-                        'reference' => '', 'max_length' => '40', 'mandatory' => 'false',
-                        'read_only' => 'false', 'default_value' => '', 'column_label' => 'State',
-                    ],
-                    [
-                        'name' => 'incident', 'element' => 'state', 'internal_type' => 'string',
-                        'reference' => '', 'max_length' => '40', 'mandatory' => 'false',
-                        'read_only' => 'true', 'default_value' => '', 'column_label' => 'State',
-                    ],
-                ]]);
-            }
-
-            return Http::response(['result' => []]);
-        });
+        $this->fakeTables(
+            [
+                ['sys_id' => str_repeat('i', 32), 'name' => 'incident', 'super_class' => ['value' => str_repeat('d', 32)]],
+                ['sys_id' => str_repeat('d', 32), 'name' => 'task', 'super_class' => ''],
+            ],
+            [
+                [
+                    'name' => 'task', 'element' => 'state', 'internal_type' => 'string',
+                    'reference' => '', 'max_length' => '40', 'mandatory' => 'false',
+                    'read_only' => 'false', 'default_value' => '', 'column_label' => 'State',
+                ],
+                [
+                    'name' => 'incident', 'element' => 'state', 'internal_type' => 'string',
+                    'reference' => '', 'max_length' => '40', 'mandatory' => 'false',
+                    'read_only' => 'true', 'default_value' => '', 'column_label' => 'State',
+                ],
+            ]
+        );
 
         $fields = $this->reader()->fields('incident');
 
@@ -265,7 +227,7 @@ class DictionaryReaderTest extends TestCase
     {
         // EX-321 : mémorisation, y compris pour un lecteur unique.
         $this->fakeTables([
-            'name=core_company' => [['name' => 'core_company', 'super_class' => '']],
+            ['sys_id' => str_repeat('r', 32), 'name' => 'core_company', 'super_class' => ''],
         ]);
 
         $reader = $this->reader();
@@ -276,12 +238,23 @@ class DictionaryReaderTest extends TestCase
     }
 
     /**
-     * @param  array<string, array<int, array<string, mixed>>>  $byQuery
+     * @param  array<int, array<string, mixed>>  $catalog  enregistrements sys_db_object
+     * @param  array<int, array<string, mixed>>  $dictionaryFields  enregistrements sys_dictionary
      */
-    private function fakeTables(array $byQuery): void
+    private function fakeTables(array $catalog, array $dictionaryFields = []): void
     {
-        Http::fake(fn ($request) => Http::response([
-            'result' => $byQuery[$request['sysparm_query'] ?? ''] ?? [],
-        ]));
+        Http::fake(function ($request) use ($catalog, $dictionaryFields) {
+            $url = $request->url();
+
+            if (str_contains($url, '/api/now/table/sys_db_object')) {
+                return Http::response(['result' => $catalog]);
+            }
+
+            if (str_contains($url, '/api/now/table/sys_dictionary')) {
+                return Http::response(['result' => $dictionaryFields]);
+            }
+
+            return Http::response(['result' => []]);
+        });
     }
 }

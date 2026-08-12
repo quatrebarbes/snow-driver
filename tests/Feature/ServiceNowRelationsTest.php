@@ -27,8 +27,6 @@ class ServiceNowRelationsTest extends TestCase
     public function test_lazy_loading_only_issues_a_request_when_the_relation_is_actually_accessed(): void
     {
         // EX-118 : lazy loading standard d'Eloquent.
-        $this->fakeEmptyDictionary();
-
         Http::fake([
             '*/api/now/table/incidents*' => Http::response(['result' => [
                 ['sys_id' => 'inc1', 'company' => 'comp1'],
@@ -40,22 +38,18 @@ class ServiceNowRelationsTest extends TestCase
 
         $incident = Incident::first();
 
-        // EX-132 : +1 requête (dictionnaire pour la table incidents).
-        Http::assertSentCount(2);
+        Http::assertSentCount(1);
 
         $company = $incident->companyRecord;
 
         $this->assertSame('Acme', $company->name);
 
-        // EX-132 : +1 requête supplémentaire (dictionnaire pour la table companies).
-        Http::assertSentCount(4);
+        Http::assertSentCount(2);
     }
 
     public function test_eager_loading_via_with_batches_a_single_request_for_all_referenced_records(): void
     {
         // EX-118 : eager loading standard d'Eloquent (with()).
-        $this->fakeEmptyDictionary();
-
         Http::fake([
             '*/api/now/table/incidents*' => Http::response(['result' => [
                 ['sys_id' => 'inc1', 'company' => 'comp1'],
@@ -73,9 +67,8 @@ class ServiceNowRelationsTest extends TestCase
         $this->assertSame('Globex', $incidents[1]->companyRecord->name);
 
         // Une requête pour les incidents, une seule requête groupée pour les
-        // deux références (whereIn), pas une par incident. EX-132 : +2
-        // requêtes (dictionnaire pour chacune des deux tables).
-        Http::assertSentCount(4);
+        // deux références (whereIn), pas une par incident.
+        Http::assertSentCount(2);
         Http::assertSent(fn ($request) => str_contains($request->url(), '/api/now/table/companies')
             && str_contains((string) ($request['sysparm_query'] ?? ''), 'comp1')
             && str_contains((string) ($request['sysparm_query'] ?? ''), 'comp2'));

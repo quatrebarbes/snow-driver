@@ -62,8 +62,6 @@ class ServiceNowCountingTest extends TestCase
     public function test_pagination_reports_the_total_and_the_page_count(): void
     {
         // EX-316
-        $this->fakeEmptyDictionary();
-
         Http::fake([
             '*/api/now/stats/incidents*' => Http::response(['result' => ['stats' => ['count' => '25']]]),
             '*/api/now/table/incidents*' => Http::response(['result' => [
@@ -83,8 +81,6 @@ class ServiceNowCountingTest extends TestCase
     public function test_pagination_requests_a_single_page_of_records(): void
     {
         // EX-110, EX-316 : la page demandée correspond à un seul appel borné.
-        $this->fakeEmptyDictionary();
-
         Http::fake([
             '*/api/now/stats/incidents*' => Http::response(['result' => ['stats' => ['count' => '25']]]),
             '*/api/now/table/incidents*' => Http::response(['result' => [['sys_id' => 'abc123']]]),
