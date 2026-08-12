@@ -174,4 +174,30 @@ class TableApiClientTest extends TestCase
                 && $request->header('Authorization')[0] === 'Basic '.base64_encode('alice:secret');
         });
     }
+
+    public function test_a_get_request_omits_the_reference_link_by_default(): void
+    {
+        // EX-133 : sysparm_exclude_reference_link=true est demandé par défaut
+        // sur toute lecture, sans que l'appelant n'ait à le fournir.
+        Http::fake([
+            '*' => Http::response(['result' => []], 200),
+        ]);
+
+        $this->client()->get('/api/now/table/incident');
+
+        Http::assertSent(fn ($request) => ($request['sysparm_exclude_reference_link'] ?? null) === 'true');
+    }
+
+    public function test_a_caller_supplied_reference_link_value_takes_precedence(): void
+    {
+        // EX-133 : un appelant fournissant lui-même le paramètre conserve la
+        // main sur la valeur par défaut.
+        Http::fake([
+            '*' => Http::response(['result' => []], 200),
+        ]);
+
+        $this->client()->get('/api/now/table/incident', ['sysparm_exclude_reference_link' => 'false']);
+
+        Http::assertSent(fn ($request) => ($request['sysparm_exclude_reference_link'] ?? null) === 'false');
+    }
 }

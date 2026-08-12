@@ -2,6 +2,7 @@
 
 namespace Quatrebarbes\SnowDriver\Tests\Feature;
 
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Quatrebarbes\SnowDriver\Connection\ServiceNowConnection;
@@ -21,6 +22,21 @@ use Quatrebarbes\SnowDriver\Tests\TestCase;
 class ServiceNowModelGenerationTest extends TestCase
 {
     private string $appPath;
+
+    protected function defineEnvironment($app): void
+    {
+        // Requis uniquement par test_a_generated_model_file_behaves_like_a_manually_declared_model(),
+        // qui exécute réellement le fichier généré via la connexion par
+        // défaut ('servicenow') plutôt que la connexion construite
+        // manuellement par connection(), utilisée par les autres tests pour
+        // appeler ModelFileGenerator directement.
+        $app['config']->set('database.connections.servicenow.base_url', 'https://dev12345.service-now.com');
+        $app['config']->set('database.connections.servicenow.auth', [
+            'mode' => 'basic',
+            'username' => 'alice',
+            'password' => 'secret',
+        ]);
+    }
 
     protected function setUp(): void
     {
@@ -212,6 +228,76 @@ class ServiceNowModelGenerationTest extends TestCase
         // varchar (EX-307) mais sa valeur brute est un tableau {value, link},
         // pas une chaîne ; il ne doit donc recevoir aucun cast 'string'.
         $this->assertStringNotContainsString("'company' => 'string',", $content);
+    }
+
+    public function test_a_generated_model_file_behaves_like_a_manually_declared_model(): void
+    {
+        // EX-204 : un modèle généré doit disposer des mêmes capacités
+        // (lecture, écriture, relations) qu'un modèle déclaré manuellement.
+        // Contrairement aux autres tests de cette classe, qui n'inspectent
+        // que le texte source produit par le générateur, celui-ci charge et
+        // exécute réellement le fichier écrit sur disque.
+        //
+        // Un seul Http::fake() couvre à la fois la génération (dictionnaire)
+        // et l'écriture ultérieure (POST) : Http::fake() fusionne ses
+        // callbacks au lieu de les remplacer (Illuminate\Http\Client\
+        // Factory::fake()) — un second appel n'aurait donc jamais pu
+        // remplacer la réponse par défaut de fakeDictionary() pour une URL
+        // qu'elle reconnaît déjà.
+        require_once __DIR__.'/../Fixtures/Generated/CoreCompanyFixture.php';
+
+        Http::fake(function ($request) {
+            $url = $request->url();
+            $query = $request['sysparm_query'] ?? '';
+
+            if (str_contains($url, '/api/now/table/sys_db_object') && $query === 'ORDERBYname') {
+                return Http::response(['result' => [['name' => 'problem', 'super_class' => '']]]);
+            }
+
+            if (str_contains($url, '/api/now/table/sys_dictionary') && $query === 'nameINproblem^elementISNOTEMPTY^active=true') {
+                return Http::response(['result' => [
+                    $this->field('short_description', 'string') + ['name' => 'problem'],
+                    $this->field('company', 'reference', 'core_company') + ['name' => 'problem'],
+                ]]);
+            }
+
+            if ($request->method() === 'POST' && str_contains($url, '/api/now/table/problem')) {
+                return Http::response(['result' => [
+                    'sys_id' => 'def456',
+                    'short_description' => $request['short_description'],
+                ]], 201);
+            }
+
+            return Http::response(['result' => []]);
+        });
+
+        (new ModelFileGenerator($this->connection()))->generate(['problem'], 'App\\Models');
+
+        require $this->appPath.'/Models/Problem.php';
+
+        $model = new \App\Models\Problem();
+
+        // Écriture par assignation de masse via $fillable (EX-325).
+        $model->fill(['short_description' => 'Réseau indisponible']);
+        $this->assertSame('Réseau indisponible', $model->short_description);
+
+        // Relation belongsTo générée vers un modèle manuel préexistant
+        // (EX-207, EX-312), avec la même clé étrangère/référencée qu'une
+        // relation déclarée à la main.
+        $relation = $model->companyRecord();
+        $this->assertInstanceOf(BelongsTo::class, $relation);
+        $this->assertSame('company', $relation->getForeignKeyName());
+        $this->assertSame('sys_id', $relation->getOwnerKeyName());
+
+        // Écriture réelle via l'API Table (EX-112) : le modèle généré
+        // utilise la connexion 'servicenow' par défaut, exactement comme un
+        // modèle déclaré manuellement.
+        $model->save();
+
+        $this->assertSame('def456', $model->sys_id);
+        Http::assertSent(fn ($request) => $request->method() === 'POST'
+            && str_contains($request->url(), '/api/now/table/problem')
+            && $request['short_description'] === 'Réseau indisponible');
     }
 
     public function test_a_reference_field_is_ignored_when_its_target_table_has_no_resolvable_model(): void

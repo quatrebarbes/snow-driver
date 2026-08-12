@@ -7,8 +7,8 @@ use Quatrebarbes\SnowDriver\Eloquent\ServiceNowModel;
 use Quatrebarbes\SnowDriver\Tests\TestCase;
 
 /**
- * EX-327 : accessor/mutator booléen généré par ModelFileGenerator pour
- * chaque champ booléen ServiceNow (Generator\ModelFileGenerator::
+ * EX-327, EX-332 : accessor/mutator booléen généré par ModelFileGenerator
+ * pour chaque champ booléen ServiceNow (Generator\ModelFileGenerator::
  * renderBooleanAccessors()), reproduit ici sur un modèle anonyme pour en
  * vérifier le comportement : l'API Table de ServiceNow renvoie ces champs
  * sous forme de chaîne ("true"/"false") plutôt que de booléen JSON natif.

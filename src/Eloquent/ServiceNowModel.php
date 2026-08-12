@@ -154,15 +154,15 @@ abstract class ServiceNowModel extends Model
     }
 
     /**
-     * EX-327 : conversion booléenne partagée par l'accessor/mutator généré
-     * pour chaque champ booléen d'un modèle (Generator\ModelFileGenerator::
-     * renderBooleanAccessors(), qui ne fait que déléguer ici) — centralisée
-     * dans la classe de base pour n'écrire cette logique qu'une seule fois,
-     * quel que soit le nombre de champs booléens d'un même modèle. Le cast
-     * natif 'boolean' d'Eloquent ferait `(bool) $value`, toujours vrai pour
-     * la chaîne "false" renvoyée par l'API Table ServiceNow ; on compare
-     * donc explicitement la valeur lue à la chaîne "true" plutôt que de la
-     * caster brutalement.
+     * EX-327, EX-332 : conversion booléenne partagée par l'accessor/mutator
+     * généré pour chaque champ booléen d'un modèle (Generator\
+     * ModelFileGenerator::renderBooleanAccessors(), qui ne fait que déléguer
+     * ici) — centralisée dans la classe de base pour n'écrire cette logique
+     * qu'une seule fois, quel que soit le nombre de champs booléens d'un même
+     * modèle. Le cast natif 'boolean' d'Eloquent ferait `(bool) $value`,
+     * toujours vrai pour la chaîne "false" renvoyée par l'API Table
+     * ServiceNow ; on compare donc explicitement la valeur lue à la chaîne
+     * "true" plutôt que de la caster brutalement.
      */
     protected static function serviceNowBooleanAttribute(): Attribute
     {

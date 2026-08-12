@@ -15,6 +15,14 @@ use Throwable;
  * n'existe pas encore, avec ses relations belongsTo (EX-206 à EX-208), ses
  * relations hasMany réciproques (EX-209 à EX-211), ses champs modifiables et
  * ses conversions (EX-325 à EX-327, EX-331).
+ *
+ * Limite SFD (EX-202) : en environnement où l'autoloader Composer est
+ * optimisé avec une classmap figée (typiquement en production), un modèle
+ * nouvellement généré ici n'est pas ajouté à cette classmap — il peut donc
+ * ne pas être immédiatement utilisable durant la requête en cours qui a
+ * déclenché sa génération. Aucun contournement technique n'est tenté
+ * (`composer dump-autoload` reste à la charge du déploiement) ; ce mécanisme
+ * automatique vise avant tout un usage en développement.
  */
 class ModelFileGenerator
 {
@@ -42,7 +50,8 @@ class ModelFileGenerator
      * renderBooleanAccessors()) : ServiceNow renvoie ces champs sous forme
      * de chaîne ("true"/"false"), et `(bool) "false"` vaut toujours `true`
      * en PHP, toute chaîne non vide étant vraie — l'accessor/mutator prend
-     * le pas sur le cast natif pour la lecture et l'écriture réelles.
+     * le pas sur le cast natif pour la lecture et l'écriture réelles
+     * (EX-332).
      *
      * EX-331 : chaîne courte (varchar) et texte long (text) n'appellent
      * aucune transformation de valeur — la donnée ServiceNow est déjà une
@@ -420,9 +429,9 @@ class ModelFileGenerator
     }
 
     /**
-     * EX-327 : accessor/mutator dédié à chaque champ booléen, qui prend le
-     * pas sur le cast natif 'boolean' déclaré dans $casts pour la lecture
-     * et l'écriture réelles. Chaque méthode délègue à
+     * EX-327, EX-332 : accessor/mutator dédié à chaque champ booléen, qui
+     * prend le pas sur le cast natif 'boolean' déclaré dans $casts pour la
+     * lecture et l'écriture réelles. Chaque méthode délègue à
      * ServiceNowModel::serviceNowBooleanAttribute() plutôt que de répéter
      * la conversion (chaîne "true"/"false" comparée explicitement, plutôt
      * que `(bool) $value`, toujours vrai pour "false") : la logique n'est

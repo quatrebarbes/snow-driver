@@ -21,11 +21,13 @@ class TableApiClient
     }
 
     /**
-     * EX-311 : sysparm_exclude_reference_link=true est appliqué par défaut à
-     * toute lecture — un champ reference est ainsi toujours renvoyé sous la
-     * forme `{value, display_value}`, jamais `{value, link}`, sans alourdir
-     * chaque appelant. Un appelant fournissant explicitement ce paramètre
-     * conserve la main (union de tableaux : $query prioritaire).
+     * EX-133 : sysparm_exclude_reference_link=true est appliqué par défaut à
+     * toute lecture (consultation des enregistrements, résolution d'une
+     * relation belongsTo, interrogation du dictionnaire) — un champ
+     * reference est ainsi toujours renvoyé sous la forme
+     * `{value, display_value}`, jamais `{value, link}`, sans alourdir chaque
+     * appelant. Un appelant fournissant explicitement ce paramètre conserve
+     * la main (union de tableaux : $query prioritaire).
      *
      * @return array<int, array<string, mixed>>
      */
