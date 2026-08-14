@@ -24,6 +24,12 @@ use Quatrebarbes\SnowDriver\Exceptions\ServiceNowUnsupportedQueryException;
  */
 class ServiceNowSchemaBuilder extends Builder
 {
+    /**
+     * EX-334 : champs identifiants usuels placés en tête de la liste des
+     * colonnes, dans cet ordre, à la suite du champ display (EX-333).
+     */
+    private const LEADING_IDENTIFIER_FIELDS = ['sys_id', 'number', 'title', 'name', 'short_description', 'description'];
+
     private ?DictionaryReader $dictionary = null;
 
     /**
@@ -79,12 +85,16 @@ class ServiceNowSchemaBuilder extends Builder
      * EX-304, EX-306 à EX-309 : colonnes d'une table, champs hérités des
      * tables ancêtres compris, chacune décrite selon le contrat standard.
      *
+     * EX-333 à EX-335 : le champ display, puis les champs identifiants usuels
+     * présents sur la table, sont placés en tête de la liste retournée — cf.
+     * orderColumns().
+     *
      * @param  string  $table
      * @return list<array{name: string, type: string, type_name: string, collation: string|null, nullable: bool, default: mixed, auto_increment: bool, comment: string|null, generation: array{type: string, expression: string|null}|null}>
      */
     public function getColumns($table)
     {
-        $fields = $this->dictionary()->fields($this->connection->getTablePrefix().$table);
+        $fields = $this->orderColumns($this->dictionary()->fields($this->connection->getTablePrefix().$table));
 
         return array_map(fn (array $field) => [
             'name' => $field['element'],
@@ -217,6 +227,62 @@ class ServiceNowSchemaBuilder extends Builder
     private function unsupported(string $operation): ServiceNowUnsupportedQueryException
     {
         return ServiceNowUnsupportedQueryException::forClause($operation.' (le schéma d\'une instance ServiceNow se modifie côté instance)');
+    }
+
+    /**
+     * EX-333 : le champ marqué display par le dictionnaire, s'il en existe un
+     * parmi $fields, est placé en tête. Si plusieurs champs sont marqués
+     * display (dictionnaire non conforme aux conventions ServiceNow), seul le
+     * premier rencontré dans l'ordre EX-304 (déjà celui de $fields en entrée)
+     * est placé en tête ; les autres restent traités comme des colonnes
+     * ordinaires, comme pour $fillable (EX-328, EX-329).
+     *
+     * EX-334 : à la suite du champ display, chacun des champs identifiants
+     * usuels de LEADING_IDENTIFIER_FIELDS est placé dans cet ordre fixe, s'il
+     * existe sur la table et n'a pas déjà été placé par EX-333.
+     *
+     * EX-335 : les champs restants conservent entre eux l'ordre EX-304 de
+     * $fields en entrée — cet ordre n'est jamais modifié, seuls des champs en
+     * sont extraits pour être replacés en tête.
+     *
+     * Cet ordre ne régit que la liste des colonnes retournée par
+     * getColumns() ; il est indépendant de l'ordre du champ display puis des
+     * champs mandatory appliqué à $fillable des modèles générés (EX-328,
+     * EX-329, Generator\ModelFileGenerator::fillableFields()).
+     *
+     * @param  array<int, array<string, mixed>>  $fields  ordonnés selon EX-304
+     * @return array<int, array<string, mixed>>
+     */
+    private function orderColumns(array $fields): array
+    {
+        $displayIndex = null;
+
+        foreach ($fields as $index => $field) {
+            if ($field['display']) {
+                $displayIndex = $index;
+                break;
+            }
+        }
+
+        $leading = [];
+
+        if ($displayIndex !== null) {
+            $leading[] = $fields[$displayIndex];
+            unset($fields[$displayIndex]);
+        }
+
+        foreach (self::LEADING_IDENTIFIER_FIELDS as $element) {
+            foreach ($fields as $index => $field) {
+                if ($field['element'] === $element) {
+                    $leading[] = $field;
+                    unset($fields[$index]);
+
+                    continue 2;
+                }
+            }
+        }
+
+        return array_merge($leading, array_values($fields));
     }
 
     private function dictionary(): DictionaryReader

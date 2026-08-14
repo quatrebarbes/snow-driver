@@ -78,18 +78,55 @@ class ServiceNowSchemaIntrospectionTest extends TestCase
         Http::assertNotSent(fn ($request) => str_contains($request->url(), '/api/now/table/incident'));
     }
 
-    public function test_it_includes_inherited_columns_ordered_from_the_most_general_table(): void
+    public function test_it_orders_columns_with_leading_identifiers_then_inherited_order(): void
     {
         // EX-304 : les champs de `task` précèdent ceux d'`incident`, alors que
-        // le dictionnaire les renvoie dans l'ordre inverse.
+        // le dictionnaire les renvoie dans l'ordre inverse. EX-334, EX-335 :
+        // `number` et `description`, présents sur cette table, sont replacés
+        // en tête dans cet ordre fixe ; le reste (`active`, `severity`,
+        // `opened_at`, `company`, `orphan_ref`) conserve l'ordre EX-304 entre
+        // eux. Aucun champ n'est marqué display dans ce dictionnaire simulé
+        // (cf. test dédié à EX-333 ci-dessous).
         $this->fakeDictionary();
 
         $columns = Schema::connection('servicenow')->getColumnListing('incident');
 
         $this->assertSame(
-            ['number', 'active', 'description', 'severity', 'opened_at', 'company', 'orphan_ref'],
+            ['number', 'description', 'active', 'severity', 'opened_at', 'company', 'orphan_ref'],
             $columns
         );
+    }
+
+    public function test_it_places_the_display_field_before_the_leading_identifier_fields(): void
+    {
+        // EX-333 : le champ display prime sur l'ordre fixe d'EX-334, même
+        // lorsque celui-ci contient déjà, comme ici, le champ number.
+        $this->fakeSingleTableDictionary('x_ticket', [
+            $this->dictionaryField('x_ticket', 'number', 'string', ['mandatory' => 'true']),
+            $this->dictionaryField('x_ticket', 'category', 'string', ['display' => 'true']),
+            $this->dictionaryField('x_ticket', 'short_description', 'string'),
+        ]);
+
+        $columns = Schema::connection('servicenow')->getColumnListing('x_ticket');
+
+        $this->assertSame(['category', 'number', 'short_description'], $columns);
+    }
+
+    public function test_only_the_first_display_field_in_ex304_order_is_placed_first(): void
+    {
+        // Cas limite (avertissement sous EX-333) : dictionnaire non conforme
+        // aux conventions ServiceNow, deux champs marqués display sur la même
+        // table. Seul le premier rencontré dans l'ordre EX-304 est placé en
+        // tête ; le second reste une colonne ordinaire, replacée par EX-334.
+        $this->fakeSingleTableDictionary('x_ticket', [
+            $this->dictionaryField('x_ticket', 'category', 'string', ['display' => 'true']),
+            $this->dictionaryField('x_ticket', 'subcategory', 'string', ['display' => 'true']),
+            $this->dictionaryField('x_ticket', 'number', 'string', ['mandatory' => 'true']),
+        ]);
+
+        $columns = Schema::connection('servicenow')->getColumnListing('x_ticket');
+
+        $this->assertSame(['category', 'number', 'subcategory'], $columns);
     }
 
     public function test_it_types_columns_from_the_dictionary(): void
@@ -230,6 +267,51 @@ class ServiceNowSchemaIntrospectionTest extends TestCase
     private function sentCountFor(string $needle): int
     {
         return count(Http::recorded(fn ($request) => str_contains($request->url(), $needle)));
+    }
+
+    /**
+     * Dictionnaire simulé à une seule table sans héritage, dédié aux tests
+     * EX-333/EX-334 : plus court que fakeDictionary() (partagée par les tests
+     * ci-dessus), qui n'a aucun champ marqué display.
+     *
+     * @param  array<int, array<string, mixed>>  $fields
+     */
+    private function fakeSingleTableDictionary(string $table, array $fields): void
+    {
+        Http::fake(function ($request) use ($table, $fields) {
+            $url = $request->url();
+
+            if (str_contains($url, '/api/now/table/sys_db_object')) {
+                return Http::response(['result' => [
+                    ['sys_id' => str_repeat('x', 32), 'name' => $table, 'super_class' => ''],
+                ]]);
+            }
+
+            if (str_contains($url, '/api/now/table/sys_dictionary')) {
+                return Http::response(['result' => $fields]);
+            }
+
+            return Http::response(['result' => []]);
+        });
+    }
+
+    /**
+     * @param  array<string, mixed>  $overrides
+     * @return array<string, mixed>
+     */
+    private function dictionaryField(string $table, string $element, string $internalType, array $overrides = []): array
+    {
+        return array_merge([
+            'name' => $table,
+            'element' => $element,
+            'internal_type' => $internalType,
+            'reference' => '',
+            'max_length' => '40',
+            'mandatory' => 'false',
+            'read_only' => 'false',
+            'default_value' => '',
+            'column_label' => ucfirst(str_replace('_', ' ', $element)),
+        ], $overrides);
     }
 
     /**
