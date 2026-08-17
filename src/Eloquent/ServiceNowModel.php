@@ -3,7 +3,6 @@
 namespace Quatrebarbes\SnowDriver\Eloquent;
 
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Quatrebarbes\SnowDriver\Eloquent\Relations\ServiceNowBelongsTo;
 use Quatrebarbes\SnowDriver\Http\TableApiClient;
@@ -151,25 +150,6 @@ abstract class ServiceNowModel extends Model
     protected function newBelongsTo(Builder $query, Model $child, $foreignKey, $ownerKey, $relation)
     {
         return new ServiceNowBelongsTo($query, $child, $foreignKey, $ownerKey, $relation);
-    }
-
-    /**
-     * EX-327, EX-332 : conversion booléenne partagée par l'accessor/mutator
-     * généré pour chaque champ booléen d'un modèle (Generator\
-     * ModelFileGenerator::renderBooleanAccessors(), qui ne fait que déléguer
-     * ici) — centralisée dans la classe de base pour n'écrire cette logique
-     * qu'une seule fois, quel que soit le nombre de champs booléens d'un même
-     * modèle. Le cast natif 'boolean' d'Eloquent ferait `(bool) $value`,
-     * toujours vrai pour la chaîne "false" renvoyée par l'API Table
-     * ServiceNow ; on compare donc explicitement la valeur lue à la chaîne
-     * "true" plutôt que de la caster brutalement.
-     */
-    protected static function serviceNowBooleanAttribute(): Attribute
-    {
-        return Attribute::make(
-            get: fn ($value) => $value === null ? null : (is_bool($value) ? $value : strtolower((string) $value) === 'true'),
-            set: fn ($value) => $value === null ? null : ($value ? 'true' : 'false'),
-        );
     }
 
     /**

@@ -5,6 +5,7 @@ namespace Quatrebarbes\SnowDriver\Generator;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Quatrebarbes\SnowDriver\Connection\ServiceNowConnection;
+use Quatrebarbes\SnowDriver\Eloquent\Casts\ServiceNowBoolean;
 use Quatrebarbes\SnowDriver\Schema\ColumnTypeMap;
 use Quatrebarbes\SnowDriver\Schema\DictionaryReader;
 use Throwable;
@@ -149,7 +150,7 @@ class ModelFileGenerator
             '{{ namespace }}' => $namespace,
             '{{ class }}' => $descriptor['class'],
             '{{ table }}' => $descriptor['table'],
-            '{{ uses }}' => $this->renderUses($relations, $booleanFields !== []),
+            '{{ uses }}' => $this->renderUses($relations),
             '{{ fillable }}' => $this->renderFillable($this->fillableFields($fields)),
             '{{ casts }}' => $this->renderCasts($this->castFields($fields)),
             '{{ methods }}' => $this->renderMethods($relations).$this->renderBooleanAccessors($booleanFields),
@@ -350,7 +351,7 @@ class ModelFileGenerator
     /**
      * @param  array<int, array{method: string, type: string, target: string, field: string}>  $relations
      */
-    private function renderUses(array $relations, bool $hasBooleanAccessors): string
+    private function renderUses(array $relations): string
     {
         $types = array_unique(array_column($relations, 'type'));
 
@@ -362,10 +363,6 @@ class ModelFileGenerator
 
         if (in_array('hasMany', $types, true)) {
             $uses[] = 'use Illuminate\Database\Eloquent\Relations\HasMany;';
-        }
-
-        if ($hasBooleanAccessors) {
-            $uses[] = 'use Illuminate\Database\Eloquent\Casts\Attribute;';
         }
 
         if ($uses === []) {
@@ -429,14 +426,26 @@ class ModelFileGenerator
     }
 
     /**
-     * EX-327, EX-332 : accessor/mutator dédié à chaque champ booléen, qui
-     * prend le pas sur le cast natif 'boolean' déclaré dans $casts pour la
-     * lecture et l'écriture réelles. Chaque méthode délègue à
-     * ServiceNowModel::serviceNowBooleanAttribute() plutôt que de répéter
+     * EX-327, EX-332, EX-336 : accessor/mutator dédié à chaque champ
+     * booléen, qui prend le pas sur le cast natif 'boolean' déclaré dans
+     * $casts pour la lecture et l'écriture réelles. Chaque méthode délègue à
+     * Eloquent\Casts\ServiceNowBoolean::read()/write() plutôt que de répéter
      * la conversion (chaîne "true"/"false" comparée explicitement, plutôt
      * que `(bool) $value`, toujours vrai pour "false") : la logique n'est
      * ainsi écrite qu'une fois, quel que soit le nombre de champs booléens
      * du modèle généré.
+     *
+     * EX-336 : nommées selon la convention historique d'Eloquent
+     * get{Champ}Attribute()/set{Champ}Attribute() plutôt que par une
+     * méthode portant exactement le nom du champ (Attribute::make()) : ce
+     * dernier nom entrerait en collision, pour un champ ServiceNow nommé
+     * comme l'une des méthodes statiques natives d'enregistrement
+     * d'événement d'Eloquent (ex. "deleted", cf. Model::deleted($callback)),
+     * avec une méthode statique héritée — que PHP interdit de redéclarer en
+     * méthode non statique dans la classe fille, provoquant une erreur
+     * fatale au chargement du modèle généré. Le préfixe get/set et le
+     * suffixe Attribute empêchent structurellement cette collision, quel
+     * que soit le nom du champ.
      *
      * @param  array<int, string>  $fields
      */
@@ -446,12 +455,18 @@ class ModelFileGenerator
             return '';
         }
 
-        $blocks = array_map(function (string $field): string {
-            $method = Str::camel($field);
+        $cast = '\\'.ServiceNowBoolean::class;
 
-            return "\n    protected function {$method}(): Attribute\n".
+        $blocks = array_map(function (string $field) use ($cast): string {
+            $method = Str::studly($field);
+
+            return "\n    protected function get{$method}Attribute(\$value)\n".
                 "    {\n".
-                "        return static::serviceNowBooleanAttribute();\n".
+                "        return {$cast}::read(\$value);\n".
+                "    }\n".
+                "\n    protected function set{$method}Attribute(\$value)\n".
+                "    {\n".
+                "        \$this->attributes['{$field}'] = {$cast}::write(\$value);\n".
                 "    }\n";
         }, $fields);
 

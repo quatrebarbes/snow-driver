@@ -80,13 +80,57 @@ class ServiceNowModelGenerationTest extends TestCase
         // natif 'boolean' d'Eloquent, complété d'un accessor/mutator dédié
         // (cf. BooleanAccessorTest pour la raison).
         $this->assertStringContainsString("'active' => 'boolean',", $content);
-        $this->assertStringContainsString('use Illuminate\Database\Eloquent\Casts\Attribute;', $content);
-        $this->assertStringContainsString('protected function active(): Attribute', $content);
+        // EX-336 : nommé get/setActiveAttribute() (convention historique),
+        // jamais active() -- ce dernier nom collisionnerait avec une méthode
+        // statique native d'Eloquent pour un champ nommé comme l'une d'elles.
+        $this->assertStringContainsString('protected function getActiveAttribute($value)', $content);
+        $this->assertStringContainsString('protected function setActiveAttribute($value)', $content);
+        $this->assertStringNotContainsString('use Illuminate\Database\Eloquent\Casts\Attribute;', $content);
         // EX-331 : conversion 'string' déclarée pour les champs texte, y
         // compris un champ en lecture seule (une conversion documente le
         // type lu, indépendamment du caractère modifiable du champ).
         $this->assertStringContainsString("'short_description' => 'string',", $content);
         $this->assertStringContainsString("'number' => 'string',", $content);
+    }
+
+    public function test_a_boolean_field_named_like_a_reserved_eloquent_event_method_does_not_break_the_generated_model(): void
+    {
+        // EX-336 : "deleted" coïncide avec Model::deleted($callback), une
+        // méthode statique native d'Eloquent. L'accessor/mutator généré pour
+        // un champ booléen (EX-327/EX-332) est nommé get{Champ}Attribute()/
+        // set{Champ}Attribute() plutôt que par une méthode portant
+        // exactement le nom du champ : ce dernier nom (deleted()) entrerait
+        // en collision avec la méthode statique héritée, ce que PHP interdit
+        // de redéclarer en méthode non statique dans la classe fille --
+        // provoquant, avant ce correctif, une erreur fatale au chargement du
+        // modèle généré, avant même son utilisation.
+        $this->fakeDictionary([
+            'sys_email' => [
+                $this->field('subject', 'string'),
+                $this->field('deleted', 'boolean'),
+            ],
+        ]);
+
+        (new ModelFileGenerator($this->connection()))->generate(['sys_email'], 'App\\Models');
+
+        $content = $this->generatedContent('SysEmail');
+
+        $this->assertStringContainsString("'deleted' => 'boolean',", $content);
+        $this->assertStringContainsString('protected function getDeletedAttribute($value)', $content);
+        $this->assertStringContainsString('protected function setDeletedAttribute($value)', $content);
+        $this->assertDoesNotMatchRegularExpression('/protected function deleted\(/', $content);
+
+        // Le modèle généré doit rester chargeable (pas d'erreur fatale au
+        // niveau classe) et appliquer la même conversion true/false que tout
+        // autre champ booléen.
+        require $this->appPath.'/Models/SysEmail.php';
+
+        $model = new \App\Models\SysEmail();
+        $model->setRawAttributes(['deleted' => 'false'], true);
+        $this->assertFalse($model->deleted);
+
+        $model->deleted = true;
+        $this->assertSame('true', $model->getAttributes()['deleted']);
     }
 
     public function test_fillable_starts_with_the_display_field_then_mandatory_fields(): void
