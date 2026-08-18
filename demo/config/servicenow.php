@@ -57,27 +57,6 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Introspection du schéma
-    |--------------------------------------------------------------------------
-    |
-    | EX-321 à EX-323 : durée de validité, en secondes, du cache du schéma lu
-    | dans le dictionnaire de l'instance (liste des tables, colonnes, clés
-    | étrangères). Le dictionnaire d'une instance ne change qu'à l'occasion
-    | d'une modification de modèle de données : une durée de quelques minutes
-    | suffit à éviter de le réinterroger à chaque écran, sans imposer de vidage
-    | de cache explicite.
-    |
-    | Une durée nulle désactive le cache applicatif ; les lectures restent
-    | alors mémorisées le temps de la requête HTTP en cours.
-    |
-    */
-
-    'schema' => [
-        'cache_ttl' => env('SNOW_SCHEMA_CACHE_TTL', 300),
-    ],
-
-    /*
-    |--------------------------------------------------------------------------
     | Génération automatique de modèles
     |--------------------------------------------------------------------------
     |

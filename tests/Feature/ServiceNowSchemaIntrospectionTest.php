@@ -10,9 +10,9 @@ use Quatrebarbes\SnowDriver\Exceptions\ServiceNowUnsupportedQueryException;
 use Quatrebarbes\SnowDriver\Tests\TestCase;
 
 /**
- * EX-301 à EX-313, EX-321 à EX-324 : lecture du schéma d'une instance
- * ServiceNow au travers du constructeur de schéma standard de Laravel, comme
- * le ferait un outil hôte générique ne connaissant pas le driver.
+ * EX-301 à EX-313, EX-324 : lecture du schéma d'une instance ServiceNow au
+ * travers du constructeur de schéma standard de Laravel, comme le ferait un
+ * outil hôte générique ne connaissant pas le driver.
  *
  * Le dictionnaire simulé décrit une table `incident` héritant de `task`
  * (EX-304), avec un champ de référence résolvable vers `core_company`
@@ -210,29 +210,6 @@ class ServiceNowSchemaIntrospectionTest extends TestCase
         $this->assertContains('orphan_ref', $columns);
     }
 
-    public function test_it_caches_the_schema_of_a_table(): void
-    {
-        // EX-321 : une seconde interrogation ne réinterroge pas le dictionnaire.
-        $this->fakeDictionary();
-
-        Schema::connection('servicenow')->getColumns('incident');
-        Schema::connection('servicenow')->getColumns('incident');
-
-        $this->assertSame(1, $this->sentCountFor('/api/now/table/sys_dictionary'));
-    }
-
-    public function test_a_null_cache_duration_disables_the_application_cache(): void
-    {
-        // EX-323
-        config(['servicenow.schema.cache_ttl' => 0]);
-        $this->fakeDictionary();
-
-        Schema::connection('servicenow')->getColumns('incident');
-        Schema::connection('servicenow')->getColumns('incident');
-
-        $this->assertSame(2, $this->sentCountFor('/api/now/table/sys_dictionary'));
-    }
-
     public function test_it_queries_nothing_until_the_schema_is_actually_inspected(): void
     {
         // EX-324 : introspection paresseuse, rien au démarrage ni à la
@@ -262,11 +239,6 @@ class ServiceNowSchemaIntrospectionTest extends TestCase
         $this->expectException(ServiceNowUnsupportedQueryException::class);
 
         Schema::connection('servicenow')->drop('incident');
-    }
-
-    private function sentCountFor(string $needle): int
-    {
-        return count(Http::recorded(fn ($request) => str_contains($request->url(), $needle)));
     }
 
     /**

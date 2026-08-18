@@ -3,7 +3,6 @@
 namespace Quatrebarbes\SnowDriver\Schema;
 
 use Closure;
-use Illuminate\Support\Facades\Cache;
 use Quatrebarbes\SnowDriver\Connection\ServiceNowConnection;
 
 /**
@@ -11,10 +10,8 @@ use Quatrebarbes\SnowDriver\Connection\ServiceNowConnection;
  * sys_db_object et sys_dictionary), seule source du schéma exposé par
  * ServiceNowSchemaBuilder.
  *
- * EX-321 à EX-324 : chaque lecture est mise en cache (durée configurable via
- * servicenow.schema.cache_ttl, une durée nulle désactivant le cache) et
- * n'a lieu qu'à la première interrogation effective — rien n'est interrogé au
- * démarrage de l'application.
+ * EX-324 : chaque lecture n'a lieu qu'à la première interrogation effective
+ * — rien n'est interrogé au démarrage de l'application.
  *
  * Catalogue unique (cf. `tableCatalog()`) : name, sys_id et super_class de
  * toutes les tables de l'instance sont rapatriés en un seul appel à
@@ -49,10 +46,9 @@ class DictionaryReader
     private const SYS_ID = '/^[0-9a-f]{32}$/i';
 
     /**
-     * Mémorisation par instance, indépendante du cache applicatif : deux
-     * interrogations du même schéma au sein d'une même requête HTTP ne
-     * déclenchent qu'un seul appel au dictionnaire, y compris lorsque le cache
-     * applicatif est désactivé (EX-323).
+     * Mémorisation par instance : deux interrogations du même schéma au
+     * moyen de cette même instance de DictionaryReader ne déclenchent qu'un
+     * seul appel au dictionnaire.
      *
      * @var array<string, mixed>
      */
@@ -63,12 +59,9 @@ class DictionaryReader
     }
 
     /**
-     * EX-302 : noms techniques de toutes les tables de l'instance.
-     *
-     * EX-322 : mise en cache comme le schéma d'une table — une instance
-     * ServiceNow compte plusieurs milliers de tables, dont le rapatriement
-     * enchaîne plusieurs pages (EX-122). Dérivé de tableCatalog(), qui porte
-     * seul la mise en cache : aucun appel réseau propre à cette méthode.
+     * EX-302 : noms techniques de toutes les tables de l'instance. Dérivé de
+     * tableCatalog(), qui porte seul la mémorisation : aucun appel réseau
+     * propre à cette méthode.
      *
      * @return array<int, string>
      */
@@ -218,8 +211,8 @@ class DictionaryReader
 
     /**
      * EX-302, EX-303, EX-311 : name, sys_id et super_class de toutes les
-     * tables de l'instance, rapatriés en un seul appel et mis en cache comme
-     * le reste du dictionnaire (EX-321, EX-322). Seule source de tableNames(),
+     * tables de l'instance, rapatriés en un seul appel et mémorisés comme
+     * le reste du dictionnaire. Seule source de tableNames(),
      * tableRecord() et resolveTableName() : la liste des tables, l'existence
      * ou la chaîne d'héritage d'une table quelconque, et la résolution de tout
      * champ `reference` s'y résolvent ensuite sans appel réseau
@@ -301,7 +294,7 @@ class DictionaryReader
      * Noms techniques des types de champs de l'instance (sys_glide_object),
      * indexés par sys_id — nécessaire lorsque `internal_type` est renvoyé
      * sous forme de sys_id plutôt que de nom technique. Une seule requête
-     * pour toute l'instance (une centaine d'enregistrements), mise en cache.
+     * pour toute l'instance (une centaine d'enregistrements), mémorisée.
      *
      * @return array<string, string>
      */
@@ -440,8 +433,7 @@ class DictionaryReader
     }
 
     /**
-     * EX-321 à EX-323 : mémorisation par instance systématique, doublée du
-     * cache applicatif lorsque sa durée de validité est strictement positive.
+     * Mémorisation par instance systématique (cf. $memo).
      */
     private function remember(string $key, Closure $callback): mixed
     {
@@ -449,16 +441,6 @@ class DictionaryReader
             return $this->memo[$key];
         }
 
-        $ttl = (int) config('servicenow.schema.cache_ttl', 0);
-
-        if ($ttl <= 0) {
-            return $this->memo[$key] = $callback();
-        }
-
-        return $this->memo[$key] = Cache::remember(
-            'snow-driver:schema:'.$this->connection->connectionName().':'.$key,
-            $ttl,
-            $callback
-        );
+        return $this->memo[$key] = $callback();
     }
 }

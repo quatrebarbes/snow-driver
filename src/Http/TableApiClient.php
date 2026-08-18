@@ -4,6 +4,7 @@ namespace Quatrebarbes\SnowDriver\Http;
 
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
+use Illuminate\Support\Facades\Log;
 use Quatrebarbes\SnowDriver\Connection\ServiceNowConnection;
 use Quatrebarbes\SnowDriver\Exceptions\ServiceNowApiException;
 use Quatrebarbes\SnowDriver\Exceptions\ServiceNowAuthenticationException;
@@ -63,6 +64,7 @@ class TableApiClient
 
     private function send(string $method, string $uri, array $data = []): Response
     {
+        $t0 = now();
         try {
             $response = $this->connection->httpClient()->{$method}($uri, $data);
         } catch (ConnectionException $e) {
@@ -71,6 +73,13 @@ class TableApiClient
                 $e,
                 $this->connection->connectionName()
             );
+        } finally {
+            Log::debug('snow-driver', [
+                'method' => $method,
+                'uri' => $uri,
+                'data' => $data,
+                'duration_ms' => $t0->diffInMilliseconds(now()),
+            ]);
         }
 
         $this->assertSuccessful($response, $uri);

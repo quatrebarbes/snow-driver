@@ -9,7 +9,7 @@ Plug-in Laravel fournissant un driver de base de données pour accéder aux obje
 - Modèle Eloquent de base (`ServiceNowModel`) mappant `sys_id` (clé primaire string) et `sys_created_on`/`sys_updated_on` sur les timestamps natifs Eloquent
 - Query builder traduisant `where`, `whereIn`, `whereNull`, `whereBetween`, `orderBy`, `limit`/`offset` en `sysparm_query` et paramètres `sysparm_*` de l'API Table, avec pagination automatique transparente pour `all()`/`get()`
 - Comptage (`count()`, `paginate()`) via la fonction d'agrégation de l'API ServiceNow, sans rapatrier les enregistrements, et test d'existence (`exists()`) borné à un enregistrement
-- Introspection du schéma via `Schema::connection()` (liste des tables, colonnes typées, clés étrangères déduites des champs de référence) lue dans le dictionnaire de l'instance, avec mise en cache configurable
+- Introspection du schéma via `Schema::connection()` (liste des tables, colonnes typées, clés étrangères déduites des champs de référence) lue dans le dictionnaire de l'instance
 - `ServiceNowUnsupportedQueryException` pour toute clause du query builder sans équivalent ServiceNow (join, groupBy, agrégats autres que le comptage, sous-requêtes, etc.)
 
 La génération automatique de modèles pour les tables configurées reste à implémenter — voir [docs/roadmap.md](docs/roadmap.md).
@@ -62,7 +62,6 @@ Variables d'environnement correspondantes :
 | `SNOW_AUTH_MODE` | Mode d'authentification | `basic` |
 | `SNOW_USERNAME` / `SNOW_PASSWORD` | Identifiants Basic Auth | — |
 | `SNOW_PAGE_SIZE` | Taille de page pour la pagination automatique (`all()`/`get()` sans limite explicite) | `10000` |
-| `SNOW_SCHEMA_CACHE_TTL` | Durée de cache (secondes) du schéma lu dans le dictionnaire ; `0` désactive le cache applicatif | `300` |
 
 La connexion est paresseuse : aucune requête n'est effectuée au boot de l'application, seulement à la première interrogation.
 

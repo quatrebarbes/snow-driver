@@ -8,7 +8,7 @@ use Quatrebarbes\SnowDriver\Schema\DictionaryReader;
 use Quatrebarbes\SnowDriver\Tests\TestCase;
 
 /**
- * EX-302, EX-304, EX-311, EX-321 : lecture du dictionnaire de l'instance
+ * EX-302, EX-304, EX-311 : lecture du dictionnaire de l'instance
  * (sys_db_object, sys_dictionary), remontée de la chaîne d'héritage et
  * normalisation des valeurs renvoyées par l'API Table.
  */
@@ -225,7 +225,8 @@ class DictionaryReaderTest extends TestCase
 
     public function test_it_reads_the_dictionary_only_once_for_the_same_question(): void
     {
-        // EX-321 : mémorisation, y compris pour un lecteur unique.
+        // Mémorisation par instance : un même DictionaryReader ne réinterroge
+        // pas le dictionnaire pour une question déjà posée.
         $this->fakeTables([
             ['sys_id' => str_repeat('r', 32), 'name' => 'core_company', 'super_class' => ''],
         ]);
