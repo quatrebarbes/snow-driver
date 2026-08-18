@@ -14,6 +14,7 @@ use Quatrebarbes\SnowDriver\Exceptions\ServiceNowUnsupportedQueryException;
 use Quatrebarbes\SnowDriver\Http\TableApiClient;
 use Quatrebarbes\SnowDriver\Query\ServiceNowGrammar;
 use Quatrebarbes\SnowDriver\Schema\ServiceNowSchemaBuilder;
+use Quatrebarbes\SnowDriver\Schema\TableSchemaCache;
 
 /**
  * EX-101 : connexion à une instance ServiceNow configurée via config/database.php.
@@ -32,6 +33,21 @@ class ServiceNowConnection extends Connection
     private const STATS_API = '/api/now/stats/';
 
     private ?Credentials $credentials = null;
+
+    private ?TableSchemaCache $schemaCache = null;
+
+    private ?ServiceNowSchemaBuilder $schemaBuilder = null;
+
+    /**
+     * Mémorisation des comptages live par table + sysparm_query, pour la
+     * durée de vie de cette connexion (une requête HTTP courante) : deux
+     * appels identiques à countLive() — par ex. le clamp de page puis le
+     * comptage interne de Builder::paginate() sur la même relation filtrée —
+     * ne déclenchent qu'un seul appel réseau.
+     *
+     * @var array<string, int>
+     */
+    private array $countCache = [];
 
     public function __construct(string $database, string $tablePrefix, array $config)
     {
@@ -88,6 +104,16 @@ class ServiceNowConnection extends Connection
     public function tableApi(): TableApiClient
     {
         return new TableApiClient($this);
+    }
+
+    /**
+     * EX-337 à EX-341 : cache applicatif du schéma et du comptage des tables
+     * configurées, partagé par ServiceNowSchemaBuilder (colonnes, clés
+     * étrangères) et cette connexion (comptage).
+     */
+    public function schemaCache(): TableSchemaCache
+    {
+        return $this->schemaCache ??= new TableSchemaCache($this);
     }
 
     protected function getDefaultQueryGrammar(): ServiceNowGrammar
@@ -164,14 +190,28 @@ class ServiceNowConnection extends Connection
 
     /**
      * EX-122 : pagination automatique et transparente pour all()/get() sans
-     * limite explicite, en enchaînant les appels avec un décalage croissant
-     * tant que l'API retourne une page pleine.
+     * limite explicite, en enchaînant les appels avec un décalage croissant.
      *
      * Publique car le lecteur de dictionnaire (EX-302) en a besoin pour
      * rapatrier la liste complète des tables de l'instance, qui dépasse
      * couramment une page : il interroge l'API Table directement, sans passer
      * par le query builder, pour que l'introspection du schéma ne dépende pas
      * de la grammaire qu'elle sert justement à alimenter.
+     *
+     * Bug de production signalé le 2026-08-18 (chaîne d'héritage de
+     * customer_contact réduite à elle-même, sys_user jamais atteint) : une
+     * page peut revenir plus courte que sysparm_limit sans être la dernière —
+     * constaté sur sys_db_object dès que super_class est demandé parmi les
+     * champs, une ACL de champ semblant alors écarter certains
+     * enregistrements du listage en lot (alors que la même table reste
+     * lisible par une lecture individuelle filtrée sur son sys_id), y compris
+     * au milieu d'une page. S'arrêter dès qu'une page est plus courte que la
+     * limite demandée prenait alors à tort cette page pour la dernière et
+     * tronquait silencieusement la suite du catalogue. L'en-tête
+     * X-Total-Count (capturé dès la première page, quels que soient les
+     * paramètres) sert désormais de critère d'arrêt prioritaire, non affecté
+     * par ce filtrage par champ ; l'ancien critère (page pleine) ne reste un
+     * repli que si cet en-tête est absent de la réponse.
      *
      * @param  array<string, mixed>  $params
      * @return array<int, array<string, mixed>>
@@ -180,17 +220,38 @@ class ServiceNowConnection extends Connection
     {
         $pageSize = (int) config('servicenow.pagination.page_size');
 
+        // EX-339 : un listing sans filtre (aucun sysparm_query) d'une table
+        // couverte par le cache de schéma est l'occasion d'obtenir son
+        // nombre d'enregistrements sans appel dédié à l'API d'agrégation, via
+        // l'en-tête X-Total-Count de sa première page.
+        $rememberCount = $offset === 0
+            && ! isset($params['sysparm_query'])
+            && $this->schemaCache()->eligible($table);
+
         $records = [];
+        $total = null;
 
         do {
-            $page = $this->tableApi()->get(self::TABLE_API.$table, $params + [
+            $pageParams = $params + [
                 'sysparm_limit' => $pageSize,
                 'sysparm_offset' => $offset,
-            ]);
+            ];
+
+            ['records' => $page, 'total' => $pageTotal] = $this->tableApi()->getWithTotal(self::TABLE_API.$table, $pageParams);
+
+            if ($total === null) {
+                $total = $pageTotal;
+            }
+
+            if ($rememberCount && $pageTotal !== null) {
+                $this->schemaCache()->rememberCount($table, $pageTotal);
+            }
+
+            $rememberCount = false;
 
             $records = array_merge($records, $page);
             $offset += $pageSize;
-        } while (count($page) === $pageSize);
+        } while ($page !== [] && ($total !== null ? count($records) < $total : count($page) === $pageSize));
 
         return $records;
     }
@@ -199,9 +260,39 @@ class ServiceNowConnection extends Connection
      * EX-314, EX-315 : nombre d'enregistrements d'une table, filtres compris,
      * obtenu via la fonction d'agrégation de l'API ServiceNow (API Aggregate)
      * plutôt qu'en rapatriant puis dénombrant les enregistrements.
+     *
+     * EX-337 à EX-341 : seul le comptage non filtré (le nombre d'enregistrements
+     * de la table elle-même) d'une table configurée passe par le cache
+     * applicatif ; un comptage filtré n'a pas de valeur unique représentative
+     * à mémoriser et interroge donc toujours l'instance.
      */
     private function countRecords(string $table, string $sysparmQuery): int
     {
+        if ($sysparmQuery === '' && $this->schemaCache()->eligible($table)) {
+            return $this->schemaCache()->count($table, fn () => $this->countLive($table));
+        }
+
+        return $this->countLive($table, $sysparmQuery);
+    }
+
+    /**
+     * Comptage effectif auprès de l'API d'agrégation, sans passage par le
+     * cache — utilisée directement par countRecords() pour un comptage
+     * filtré ou hors cache, et par RefreshSchemaCacheJob pour rafraîchir le
+     * volet count du cache.
+     */
+    public function countLive(string $table, string $sysparmQuery = ''): int
+    {
+        // EX-323 : la mémorisation ci-dessous reste soumise au même
+        // interrupteur global que le cache de schéma — ttl à 0 doit continuer
+        // à garantir un appel réseau par comptage, sans exception.
+        $memoize = $this->schemaCache()->enabled();
+        $cacheKey = $table.'|'.$sysparmQuery;
+
+        if ($memoize && array_key_exists($cacheKey, $this->countCache)) {
+            return $this->countCache[$cacheKey];
+        }
+
         $params = ['sysparm_count' => 'true'];
 
         if ($sysparmQuery !== '') {
@@ -218,6 +309,10 @@ class ServiceNowConnection extends Connection
         // réponse inattendue).
         if (! is_numeric($count)) {
             throw ServiceNowMalformedResponseException::forMissingAggregate($table);
+        }
+
+        if ($memoize) {
+            $this->countCache[$cacheKey] = (int) $count;
         }
 
         return (int) $count;
@@ -246,10 +341,22 @@ class ServiceNowConnection extends Connection
      * EX-301 : constructeur de schéma adossé au dictionnaire de l'instance,
      * en lieu et place du constructeur générique de Laravel, inutilisable ici
      * faute de grammaire de schéma SQL.
+     *
+     * Mémorisé par connexion (plutôt que reconstruit à chaque appel, comme le
+     * fait le Connection::getSchemaBuilder() générique de Laravel — sans
+     * conséquence pour un driver SQL, dont le Builder ne porte aucun état
+     * coûteux) : ServiceNowSchemaBuilder construit paresseusement son propre
+     * DictionaryReader (EX-324), dont la mémorisation du catalogue des tables
+     * (tableCatalog(), sys_db_object) et des champs de chaque table ne profite
+     * qu'aux appels partageant la même instance. Un outil hôte vérifiant
+     * l'existence de plusieurs tables au sein d'une même requête (ex.
+     * hasTable() par table d'un menu) obtenait sinon un DictionaryReader vierge
+     * — donc un aller-retour sys_db_object complet — à chaque table (bug
+     * constaté en production le 2026-08-18, cf. Phase 8, roadmap).
      */
     public function getSchemaBuilder(): ServiceNowSchemaBuilder
     {
-        return new ServiceNowSchemaBuilder($this);
+        return $this->schemaBuilder ??= new ServiceNowSchemaBuilder($this);
     }
 
     /**

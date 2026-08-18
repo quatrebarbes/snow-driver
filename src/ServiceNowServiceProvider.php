@@ -30,6 +30,7 @@ class ServiceNowServiceProvider extends ServiceProvider
         });
 
         $this->generateModels();
+        $this->warmSchemaCache();
     }
 
     /**
@@ -41,26 +42,68 @@ class ServiceNowServiceProvider extends ServiceProvider
      */
     private function generateModels(): void
     {
-        $config = $this->app->make('config');
-
-        $tables = (array) $config->get('servicenow.models.tables', []);
+        $tables = (array) $this->app->make('config')->get('servicenow.models.tables', []);
 
         if ($tables === []) {
             return;
         }
 
-        $namespace = (string) $config->get('servicenow.models.namespace', 'App\\Models');
+        $namespace = (string) $this->app->make('config')->get('servicenow.models.namespace', 'App\\Models');
+        $connection = $this->resolveConfiguredConnection('la génération de modèles');
+
+        if ($connection === null) {
+            return;
+        }
+
+        (new ModelFileGenerator($connection))->generate($tables, $namespace);
+    }
+
+    /**
+     * EX-338 : vérifie, au démarrage de l'application hôte, la fraîcheur du
+     * cache de schéma (EX-337) des tables configurées et de la liste des
+     * tables de l'instance (EX-322), et programme au besoin leur
+     * rafraîchissement différé (EX-340) — sans jamais interroger le
+     * dictionnaire directement à ce stade (EX-324) : TableSchemaCache::warm()
+     * ne lit que les métadonnées déjà en cache.
+     *
+     * EX-322 ne dépendant pas de servicenow.models.tables (une seule liste
+     * sert toute l'instance), la connexion est résolue dès que le cache est
+     * actif (ttl > 0), même si aucune table n'est configurée — à la
+     * différence du volet par table.
+     */
+    private function warmSchemaCache(): void
+    {
+        if ((int) $this->app->make('config')->get('servicenow.cache.ttl', 0) <= 0) {
+            return;
+        }
+
+        $tables = (array) $this->app->make('config')->get('servicenow.models.tables', []);
+
+        $connection = $this->resolveConfiguredConnection('le cache de schéma');
+
+        $connection?->schemaCache()->warm($tables);
+    }
+
+    /**
+     * Connexion ServiceNow désignée par servicenow.default, partagée par la
+     * génération de modèles et le cache de schéma. `null` si la connexion
+     * configurée n'est pas une connexion ServiceNow, journalisé avec le
+     * contexte de l'appelant pour distinguer les deux usages.
+     */
+    private function resolveConfiguredConnection(string $usage): ?ServiceNowConnection
+    {
+        $config = $this->app->make('config');
         $connectionName = (string) $config->get('servicenow.default', 'servicenow');
 
         $connection = $this->app->make('db')->connection($connectionName);
 
         if (! $connection instanceof ServiceNowConnection) {
-            Log::warning("snow-driver: la connexion \"{$connectionName}\" configurée pour la génération de modèles n'est pas une connexion ServiceNow ; génération ignorée.");
+            Log::warning("snow-driver: la connexion \"{$connectionName}\" configurée pour {$usage} n'est pas une connexion ServiceNow ; ignoré.");
 
-            return;
+            return null;
         }
 
-        (new ModelFileGenerator($connection))->generate($tables, $namespace);
+        return $connection;
     }
 
     /**

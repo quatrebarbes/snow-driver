@@ -59,6 +59,21 @@ class ServiceNowCountingTest extends TestCase
         Http::assertSent(fn ($request) => ! array_key_exists('sysparm_query', $request->data()));
     }
 
+    public function test_repeating_the_same_count_within_a_request_issues_a_single_call(): void
+    {
+        // Comptage filtré identique demandé deux fois (ex. relation paginée
+        // clampant sa dernière page puis relançant Builder::paginate()) :
+        // la seconde demande est servie sans nouvel appel réseau.
+        $this->fakeCount(5);
+
+        $query = fn () => Incident::where('active', '=', 'true')->count();
+
+        $this->assertSame(5, $query());
+        $this->assertSame(5, $query());
+
+        Http::assertSentCount(1);
+    }
+
     public function test_pagination_reports_the_total_and_the_page_count(): void
     {
         // EX-316

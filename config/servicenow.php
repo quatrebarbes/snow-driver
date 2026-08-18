@@ -75,4 +75,26 @@ return [
         'namespace' => env('SNOW_MODELS_NAMESPACE', 'App\\Models'),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Cache applicatif du schéma et du comptage
+    |--------------------------------------------------------------------------
+    |
+    | EX-337 : pour chacune des tables déclarées dans servicenow.models.tables
+    | ci-dessus, un cache mémorise le schéma de la table (colonnes, types, clés
+    | étrangères) et son nombre d'enregistrements.
+    |
+    | EX-322 : la liste des tables de l'instance est mise en cache selon ce
+    | même mécanisme, sans être limitée aux tables déclarées ci-dessus.
+    |
+    | EX-323 : durée de validité (en secondes) de ces caches ; une durée nulle
+    | les désactive entièrement (aucune mémorisation, chaque lecture interroge
+    | l'instance).
+    |
+    */
+
+    'cache' => [
+        'ttl' => env('SNOW_SCHEMA_CACHE_TTL', 3600),
+    ],
+
 ];

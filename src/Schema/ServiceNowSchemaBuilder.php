@@ -62,7 +62,7 @@ class ServiceNowSchemaBuilder extends Builder
             'comment' => null,
             'collation' => null,
             'engine' => null,
-        ], $this->dictionary()->tableNames());
+        ], $this->tableNames());
     }
 
     /**
@@ -73,12 +73,19 @@ class ServiceNowSchemaBuilder extends Builder
      * jamais présenter un dictionnaire inaccessible comme une instance sans
      * tables.
      *
+     * EX-322 : résolue depuis tableNames(), donc servie par le cache
+     * applicatif de la liste des tables lorsqu'il est actif — sans quoi un
+     * outil hôte interrogeant hasTable() à chaque requête HTTP (une connexion
+     * neuve à chaque fois) redéclenchait un aller-retour sys_db_object complet
+     * à chaque appel, le partage par instance de DictionaryReader ne
+     * bénéficiant qu'aux appels d'une même connexion (cf. getSchemaBuilder()).
+     *
      * @param  string  $table
      * @return bool
      */
     public function hasTable($table)
     {
-        return $this->dictionary()->tableExists($this->connection->getTablePrefix().$table);
+        return $this->tableExists($this->connection->getTablePrefix().$table);
     }
 
     /**
@@ -94,7 +101,7 @@ class ServiceNowSchemaBuilder extends Builder
      */
     public function getColumns($table)
     {
-        $fields = $this->orderColumns($this->dictionary()->fields($this->connection->getTablePrefix().$table));
+        $fields = $this->orderColumns($this->fields($table));
 
         return array_map(fn (array $field) => [
             'name' => $field['element'],
@@ -131,7 +138,7 @@ class ServiceNowSchemaBuilder extends Builder
      */
     public function getForeignKeys($table)
     {
-        $fields = $this->dictionary()->fields($this->connection->getTablePrefix().$table);
+        $fields = $this->fields($table);
 
         $foreignKeys = [];
 
@@ -140,7 +147,7 @@ class ServiceNowSchemaBuilder extends Builder
                 continue;
             }
 
-            if (! $this->dictionary()->tableExists($field['reference_table'])) {
+            if (! $this->tableExists($field['reference_table'])) {
                 continue;
             }
 
@@ -290,5 +297,54 @@ class ServiceNowSchemaBuilder extends Builder
         // EX-324 : le lecteur n'est construit, et le dictionnaire interrogé,
         // qu'à la première interrogation effective du schéma.
         return $this->dictionary ??= new DictionaryReader($this->serviceNowConnection);
+    }
+
+    /**
+     * EX-337 à EX-341 : champs du dictionnaire d'une table, servis par le
+     * cache applicatif lorsque la table est configurée (servicenow.models.tables)
+     * et le cache actif, en direct depuis le dictionnaire sinon.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function fields(string $table): array
+    {
+        $prefixedTable = $this->connection->getTablePrefix().$table;
+
+        $cache = $this->serviceNowConnection->schemaCache();
+
+        if (! $cache->eligible($prefixedTable)) {
+            return $this->dictionary()->fields($prefixedTable);
+        }
+
+        return $cache->fields($prefixedTable, fn () => $this->dictionary()->fields($prefixedTable));
+    }
+
+    /**
+     * EX-322 : liste des tables de l'instance, servie par le cache applicatif
+     * lorsqu'il est actif, en direct depuis le dictionnaire sinon — à la
+     * différence de fields(), sans dépendre de servicenow.models.tables.
+     *
+     * @return array<int, string>
+     */
+    private function tableNames(): array
+    {
+        $cache = $this->serviceNowConnection->schemaCache();
+
+        if (! $cache->tableNamesEligible()) {
+            return $this->dictionary()->tableNames();
+        }
+
+        return $cache->tableNames(fn () => $this->dictionary()->tableNames());
+    }
+
+    /**
+     * EX-303, EX-322 : existence d'une table, dérivée de tableNames() plutôt
+     * que d'une interrogation dédiée du dictionnaire, afin de bénéficier du
+     * même cache applicatif que getTables() — utilisée par hasTable() et par
+     * la vérification de la table cible d'un champ reference (getForeignKeys()).
+     */
+    private function tableExists(string $table): bool
+    {
+        return in_array($table, $this->tableNames(), true);
     }
 }

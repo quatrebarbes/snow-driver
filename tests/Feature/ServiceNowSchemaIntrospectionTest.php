@@ -68,6 +68,25 @@ class ServiceNowSchemaIntrospectionTest extends TestCase
         $this->assertFalse(Schema::connection('servicenow')->hasTable('ghost_table'));
     }
 
+    public function test_repeated_schema_builder_resolution_shares_the_table_catalog(): void
+    {
+        // Bug de production signalé le 2026-08-18 : DB::connection('servicenow')
+        // ->getSchemaBuilder() reconstruisait un ServiceNowSchemaBuilder (donc un
+        // DictionaryReader) neuf à chaque appel — un outil hôte vérifiant
+        // l'existence de plusieurs tables l'une après l'autre (hasTable() par
+        // table d'un menu, sans jamais conserver le même constructeur)
+        // redéclenchait donc un aller-retour sys_db_object complet par table.
+        // getSchemaBuilder() est désormais mémorisé par connexion (cf.
+        // ServiceNowConnection::getSchemaBuilder()).
+        $this->fakeDictionary();
+
+        $this->assertTrue(Schema::connection('servicenow')->hasTable('incident'));
+        $this->assertTrue(Schema::connection('servicenow')->hasTable('task'));
+        $this->assertTrue(Schema::connection('servicenow')->hasTable('core_company'));
+
+        Http::assertSentCount(1);
+    }
+
     public function test_it_never_reads_records_of_the_inspected_table(): void
     {
         // EX-303 : seul le dictionnaire est interrogé.

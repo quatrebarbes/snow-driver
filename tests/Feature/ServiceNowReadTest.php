@@ -102,6 +102,40 @@ class ServiceNowReadTest extends TestCase
         Http::assertSentCount(2);
     }
 
+    public function test_a_page_shorter_than_the_page_size_keeps_paginating_when_x_total_count_says_more_remain(): void
+    {
+        // Bug de production du 2026-08-18 : une page peut revenir plus courte
+        // que sysparm_limit sans être la dernière (constaté sur sys_db_object
+        // dès que super_class est demandé, une ACL de champ semblant écarter
+        // certains enregistrements du listage en lot). S'arrêter dès qu'une
+        // page est plus courte que la limite demandée (ancien critère)
+        // tronquait alors la suite. X-Total-Count doit désormais primer.
+        $this->app['config']->set('servicenow.pagination.page_size', 2);
+
+        Http::fake([
+            '*' => function ($request) {
+                $offset = (int) ($request['sysparm_offset'] ?? 0);
+
+                // La première page ne renvoie qu'un seul enregistrement alors
+                // que sysparm_limit=2 en demande deux — plus courte que la
+                // limite, mais pas la dernière : les deux enregistrements
+                // restants n'apparaissent que sur la page suivante,
+                // conformément à X-Total-Count (3 au total).
+                $page = $offset === 0
+                    ? [['sys_id' => '1']]
+                    : [['sys_id' => '2'], ['sys_id' => '3']];
+
+                return Http::response(['result' => $page], 200, ['X-Total-Count' => '3']);
+            },
+        ]);
+
+        $incidents = Incident::all();
+
+        $this->assertCount(3, $incidents);
+
+        Http::assertSentCount(2);
+    }
+
     public function test_take_with_an_explicit_limit_beyond_the_page_size_issues_a_single_request(): void
     {
         // EX-122 : une limite explicite ne déclenche jamais l'enchaînement automatique.

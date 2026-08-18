@@ -39,6 +39,28 @@ class TableApiClient
         ]), $uri);
     }
 
+    /**
+     * EX-339 : variante de get() exposant, en plus des enregistrements,
+     * l'en-tête X-Total-Count de la réponse lorsqu'il est présent — capture
+     * opportuniste du nombre d'enregistrements d'un listing sans filtre, sans
+     * appel dédié à l'API d'agrégation.
+     *
+     * @return array{records: array<int, array<string, mixed>>, total: int|null}
+     */
+    public function getWithTotal(string $uri, array $query = []): array
+    {
+        $response = $this->send('get', $uri, $query + [
+            'sysparm_exclude_reference_link' => 'true',
+        ]);
+
+        $total = $response->header('X-Total-Count');
+
+        return [
+            'records' => $this->decodeResult($response, $uri),
+            'total' => is_numeric($total) ? (int) $total : null,
+        ];
+    }
+
     /** @return array<string, mixed> */
     public function post(string $uri, array $payload): array
     {
