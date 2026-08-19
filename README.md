@@ -1,4 +1,7 @@
-# snow-driver
+<h1 align="center">
+    <img src="demo/public/logo.png" alt="snow-driver" width="200"><br />
+    snow-driver
+</h1>
 
 Plug-in Laravel fournissant un driver de base de données pour accéder aux objets d'une plateforme ServiceNow au travers de modèles Eloquent (API Table ServiceNow).
 
@@ -9,10 +12,9 @@ Plug-in Laravel fournissant un driver de base de données pour accéder aux obje
 - Modèle Eloquent de base (`ServiceNowModel`) mappant `sys_id` (clé primaire string) et `sys_created_on`/`sys_updated_on` sur les timestamps natifs Eloquent
 - Query builder traduisant `where`, `whereIn`, `whereNull`, `whereBetween`, `orderBy`, `limit`/`offset` en `sysparm_query` et paramètres `sysparm_*` de l'API Table, avec pagination automatique transparente pour `all()`/`get()`
 - Comptage (`count()`, `paginate()`) via la fonction d'agrégation de l'API ServiceNow, sans rapatrier les enregistrements, et test d'existence (`exists()`) borné à un enregistrement
-- Introspection du schéma via `Schema::connection()` (liste des tables, colonnes typées, clés étrangères déduites des champs de référence) lue dans le dictionnaire de l'instance
+- Introspection du schéma via `Schema::connection()` (liste des tables, colonnes typées, clés étrangères déduites des champs de référence) lue dans le dictionnaire de l'instance, avec cache applicatif configurable (schéma, comptage, liste des tables) pour les tables déclarées en génération de modèles
+- Génération automatique de modèles Eloquent (`servicenow.models.tables`) au démarrage de l'application hôte : `$fillable`/`$casts` déduits du dictionnaire, relations `belongsTo`/`hasMany` générées entre tables configurées
 - `ServiceNowUnsupportedQueryException` pour toute clause du query builder sans équivalent ServiceNow (join, groupBy, agrégats autres que le comptage, sous-requêtes, etc.)
-
-La génération automatique de modèles pour les tables configurées reste à implémenter — voir [docs/roadmap.md](docs/roadmap.md).
 
 ## Prérequis
 
@@ -62,6 +64,8 @@ Variables d'environnement correspondantes :
 | `SNOW_AUTH_MODE` | Mode d'authentification | `basic` |
 | `SNOW_USERNAME` / `SNOW_PASSWORD` | Identifiants Basic Auth | — |
 | `SNOW_PAGE_SIZE` | Taille de page pour la pagination automatique (`all()`/`get()` sans limite explicite) | `10000` |
+| `SNOW_MODELS_NAMESPACE` | Namespace PHP des modèles générés (`servicenow.models.tables`) | `App\Models` |
+| `SNOW_SCHEMA_CACHE_TTL` | Durée de validité (secondes) du cache de schéma/comptage/liste des tables ; `0` désactive le cache | `3600` |
 
 La connexion est paresseuse : aucune requête n'est effectuée au boot de l'application, seulement à la première interrogation.
 
@@ -106,6 +110,21 @@ Incident::where('active', true)->exists();
 Les types internes ServiceNow sont exposés sous les noms de types que Laravel reconnaît (`boolean`, `integer`, `decimal`, `date`, `datetime`, `time`, `json`, `text`, `varchar`) ; un type inconnu est exposé comme chaîne plutôt que de faire échouer l'introspection. Un champ de type `reference` est exposé comme clé étrangère vers `sys_id` de la table référencée — mais ServiceNow n'appliquant aucune contrainte d'intégrité référentielle, cette clé est descriptive.
 
 La structure d'une table ServiceNow se modifie côté instance : les opérations de modification de schéma (`Schema::create()`, `drop()`, `table()`...) lèvent `ServiceNowUnsupportedQueryException`.
+
+Pour les tables déclarées dans `servicenow.models.tables` (voir [Génération automatique de modèles](#génération-automatique-de-modèles) ci-dessous), ainsi que pour la liste des tables de l'instance, le schéma et le comptage sont mis en cache (`SNOW_SCHEMA_CACHE_TTL`) : une entrée expirée est servie telle quelle et rafraîchie de façon asynchrone après la réponse en cours, sans pénaliser la lecture qui l'a déclenchée.
+
+## Génération automatique de modèles
+
+Déclarer les tables ServiceNow à modéliser dans `config/servicenow.php` :
+
+```php
+'models' => [
+    'tables' => ['incident', 'sys_user', 'task'],
+    'namespace' => env('SNOW_MODELS_NAMESPACE', 'App\\Models'),
+],
+```
+
+Au démarrage de l'application hôte, un fichier de modèle Eloquent est généré (s'il n'existe pas déjà) pour chaque table déclarée : `$table`, `$fillable` (champs modifiables, champ display puis mandatory en tête, virtuels exclus) et `$casts` déduits du dictionnaire ServiceNow, relations `belongsTo()`/`hasMany()` générées entre les tables configurées. Un fichier déjà présent n'est jamais réécrit (personnalisation manuelle préservée).
 
 ## Application de démonstration
 
