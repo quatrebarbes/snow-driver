@@ -72,6 +72,7 @@ Non couvert par une exigence SFD.
 - [x] Application de démo Laravel (`demo/`) consommant le package via repository composer `path`, sans base SQL locale
 - [x] IHM Blade seul : menu des tables configurées, liste paginée, détail, page d'erreur illustrant la hiérarchie d'exceptions — `App\Models\ServiceNowRecord::forTable()`
 - [x] Dockerisation (`demo/Dockerfile`, service `demo` dans `docker-compose.yml`)
+- [x] `package:discover` (post-autoload-dump) reporté à `demo/docker-entrypoint.sh` plutôt qu'exécuté pendant `composer install` en phase de build : `demo/.env` n'étant pas copié dans l'image (pas de secrets figés en build), le boot de `ServiceNowServiceProvider` sans lui retombait sur le cache "database"/sqlite par défaut de Laravel, jamais migré, et plantait le build ; `demo/bootstrap/cache/*.php` (artefact local ignoré par git) exclu du contexte Docker pour la même raison
 
 ## Phase 6 — Écriture : création, modification, suppression
 

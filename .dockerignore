@@ -8,3 +8,4 @@ demo/.phpunit.result.cache
 demo/storage/logs
 demo/.env
 demo/.env.*
+demo/bootstrap/cache/*.php

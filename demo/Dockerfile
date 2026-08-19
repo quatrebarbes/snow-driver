@@ -15,8 +15,18 @@ COPY config ./config
 COPY demo ./demo
 
 WORKDIR /app/demo
-RUN composer install --no-dev --optimize-autoloader --no-interaction
+# --no-scripts : package:discover (post-autoload-dump) boote l'application,
+# donc ServiceNowServiceProvider, qui lit le cache applicatif dès le boot
+# (servicenow.cache.ttl > 0 par défaut). demo/.env n'est pas copié dans
+# l'image (cf. .dockerignore, pas de secrets figés en build) : sans lui,
+# Laravel retombe sur le cache "database"/sqlite par défaut, jamais migré,
+# et le boot plante. On reporte donc package:discover à docker-entrypoint.sh,
+# une fois l'environnement réel monté au démarrage du conteneur.
+RUN composer install --no-dev --optimize-autoloader --no-interaction --no-scripts
+
+RUN chmod +x docker-entrypoint.sh
 
 EXPOSE 8000
 
+ENTRYPOINT ["./docker-entrypoint.sh"]
 CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]
